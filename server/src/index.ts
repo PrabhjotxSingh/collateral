@@ -1,0 +1,20 @@
+import express from 'express';
+import { createServer } from 'node:http';
+import { Server } from '@colyseus/core';
+import { WebSocketTransport } from '@colyseus/ws-transport';
+import { resolve,basename } from 'node:path';
+import { SessionRoom } from './SessionRoom.js';
+import { CombatRoom } from './CombatRoom.js';
+import { sessions } from './sessions.js';
+const app=express();
+app.get('/api/health',(_req,res)=>res.json({ok:true,game:'Collateral'}));
+// A single origin serves both the built client and matchmaking. Use a TLS reverse proxy in production.
+const clientDist=resolve(process.cwd(),basename(process.cwd())==='server'?'../client/dist':'client/dist');
+app.use(express.static(process.env.CLIENT_DIST??clientDist));
+const http=createServer(app);
+const server=new Server({transport:new WebSocketTransport({server:http})});
+server.define('session',SessionRoom);server.define('tactical',CombatRoom);
+const sweep=setInterval(()=>sessions.sweep(),1000);sweep.unref();
+const port=Number(process.env.PORT??2567);
+await server.listen(port,'0.0.0.0');
+console.log(`Collateral authoritative server listening on ${port}`);

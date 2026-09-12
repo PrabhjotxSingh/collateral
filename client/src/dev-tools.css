@@ -1,0 +1,6 @@
+#collateral-dev{position:fixed;z-index:10000;right:14px;top:14px;width:370px;max-width:calc(100vw - 28px);max-height:calc(100vh - 28px);overflow:auto;background:#131b23f5;border:1px solid #557186;padding:14px;color:#edf2f5;font:12px/1.5 monospace;box-shadow:0 12px 50px #0009;pointer-events:auto}
+#collateral-dev[hidden]{display:none}#collateral-dev header{display:flex;align-items:center;justify-content:space-between}#collateral-dev canvas{display:block;width:100%;height:265px;touch-action:none;background:#10151b}
+#collateral-dev button{font:inherit;padding:5px 8px;background:#283847;color:#fff;border:1px solid #52687a;cursor:pointer}
+#collateral-dev [data-fields]{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0}#collateral-dev label{display:block}#collateral-dev input[type=number]{width:90px;float:right;background:#0b1117;border:1px solid #4a6276;color:white;padding:3px}
+#collateral-dev textarea{box-sizing:border-box;width:100%;height:140px;background:#090f14;color:#b4e5dd;margin:10px 0;font:11px monospace}
+#collateral-dev small,#collateral-dev output{display:block;color:#a7b9c8;margin-top:6px}#collateral-dev [data-poses],#collateral-dev .dev-actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
