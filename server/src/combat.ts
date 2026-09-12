@@ -4,7 +4,9 @@ import { RULES,type Team } from '../../shared/rules.js';
 import { direction,rayBox,type Body,type Vec } from '../../shared/simulation.js';
 import type { GameMap } from '../../shared/maps.js';
 export function roundWinner(players:Iterable<Pick<PlayerState,'team'|'health'|'connected'>>,_round:number,expired:boolean):Team|'draw'|undefined{
-  let a=0,b=0;for(const p of players)if(p.health>0&&p.connected){if(p.team==='A')a++;else b++;}
+  let a=0,b=0,totalA=0,totalB=0;for(const p of players)if(p.connected){if(p.team==='A'){totalA++;if(p.health>0)a++;}else{totalB++;if(p.health>0)b++;}}
+  // Every round is one-life sudden death: the first casualty loses the round.
+  if(a<totalA&&b===totalB)return 'B';if(b<totalB&&a===totalA)return 'A';
   if(a===0&&b===0)return 'draw';
   if(a===0)return 'B';if(b===0)return 'A';if(expired)return a===b?'draw':a>b?'A':'B';
 }
@@ -15,8 +17,12 @@ export function traceShot(shooter:PlayerState,players:Iterable<PlayerState>,map:
   for(const player of players){
     if(player.id===shooter.id||player.health<=0||!player.connected)continue;
     const height=player.crouch?RULES.crouchHeight:RULES.height;
-    const d=rayBox(origin,dir,{x:player.x,y:player.y+height/2,z:player.z,w:RULES.radius*2,h:height,d:RULES.radius*2});
-    if(d<distance){distance=d;target=player;headshot=origin.y+dir.y*d>player.y+height-0.3;}
+    const headY=player.y+height-RULES.headTopInset-RULES.headHeight/2;
+    const headDistance=rayBox(origin,dir,{x:player.x,y:headY,z:player.z,w:RULES.headRadius*2,h:RULES.headHeight,d:RULES.headRadius*2});
+    const bodyHeight=height-RULES.headTopInset-RULES.headHeight;
+    const bodyDistance=rayBox(origin,dir,{x:player.x,y:player.y+bodyHeight/2,z:player.z,w:RULES.radius*2,h:bodyHeight,d:RULES.radius*2});
+    const d=Math.min(headDistance,bodyDistance);
+    if(d<distance){distance=d;target=player;headshot=headDistance<=bodyDistance;}
   }
   // Teammates block shots, but friendly fire is disabled in v1.
   if(target?.team===shooter.team)target=undefined;

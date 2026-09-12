@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "server",
-    "client"
+    "client",
+    "engine"
   ],
   "type": "module",
   "engines": {
@@ -12,7 +13,8 @@
   },
   "scripts": {
     "dev": "concurrently -k -n server,client \"npm run dev -w server\" \"npm run dev -w client\"",
-    "build": "npm run build -w server && npm run build -w client",
+    "dev:engine": "npm run dev -w engine",
+    "build": "npm run build -w server && npm run build -w client && npm run build -w engine",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:integration": "node tests/run-integration.mjs",

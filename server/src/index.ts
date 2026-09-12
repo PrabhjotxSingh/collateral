@@ -6,10 +6,16 @@ import { resolve,basename } from 'node:path';
 import { SessionRoom } from './SessionRoom.js';
 import { CombatRoom } from './CombatRoom.js';
 import { sessions } from './sessions.js';
+import {loadInstalledMaps} from './map-registry.js';
+import {MAPS} from '../../shared/maps.js';
 const app=express();
+const projectRoot=resolve(process.cwd(),basename(process.cwd())==='server'?'..':'.');
+loadInstalledMaps(resolve(projectRoot,'client/public/maps'));
 app.get('/api/health',(_req,res)=>res.json({ok:true,game:'Collateral'}));
+app.get('/api/maps',(_req,res)=>res.json(MAPS.map(({id,name})=>({id,name}))));
+app.get('/api/maps/:id',(req,res)=>{const map=MAPS.find(m=>m.id===req.params.id);if(!map)return res.status(404).json({error:'Map not found'});res.json(map);});
 // A single origin serves both the built client and matchmaking. Use a TLS reverse proxy in production.
-const clientDist=resolve(process.cwd(),basename(process.cwd())==='server'?'../client/dist':'client/dist');
+const clientDist=resolve(projectRoot,'client/dist');
 app.use(express.static(process.env.CLIENT_DIST??clientDist));
 const http=createServer(app);
 const server=new Server({transport:new WebSocketTransport({server:http})});

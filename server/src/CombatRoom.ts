@@ -1,7 +1,7 @@
 import type { Client } from '@colyseus/core';
 import { TacticalRoom } from './TacticalRoom.js';
 import type { PlayerState } from './state.js';
-import { RULES,type Team } from '../../shared/rules.js';
+import { RULES,winsRequired,type Team } from '../../shared/rules.js';
 import { mapById } from '../../shared/maps.js';
 import { emptyInput,type Input,type ShotEvent,type FireRequest } from '../../shared/protocol.js';
 import { makeBody,moveBody,resolvePlayerContact,validInput,type Body } from '../../shared/simulation.js';
@@ -10,6 +10,7 @@ import { roundWinner,traceShot,spreadRadians } from './combat.js';
 interface Runtime {body:Body;input:Input;received:number;lastShot:number;reloadEnd:number;lastStep:number;recoil:number;raiseEnd:number;sprintSuppressed:boolean;queuedFire:boolean;pendingFire?:FireRequest}
 export class CombatRoom extends TacticalRoom {
   private runtime=new Map<string,Runtime>();
+  private roundDamage=new Map<string,{damage:number;hits:number}>();
   private simTime=0;private accumulator=0;private deadline=0;
   async onCreate(options:any){
     await super.onCreate(options);
@@ -30,7 +31,7 @@ export class CombatRoom extends TacticalRoom {
   }
   protected startMatch(client:Client){super.startMatch(client);this.prepRound();}
   private prepRound(){
-    const s=this.state,map=mapById(s.mapId);s.phase='prep';s.remaining=RULES.prepSeconds;s.winner='';s.reason='';this.deadline=this.simTime+RULES.prepSeconds;
+    const s=this.state,map=mapById(s.mapId);this.roundDamage.clear();s.phase='prep';s.remaining=RULES.prepSeconds;s.winner='';s.reason='';this.deadline=this.simTime+RULES.prepSeconds;
     const count={A:0,B:0};
     for(const p of s.players.values()){
       const side=s.round%2===1?p.team:(p.team==='A'?'B':'A');const spawn=map.spawns[side][count[p.team]++];
@@ -40,7 +41,13 @@ export class CombatRoom extends TacticalRoom {
   }
   private tick(dt:number){
     this.simTime+=dt;const s=this.state;
-    if(s.phase==='waiting'||s.phase==='finished')return;
+    if(s.phase==='waiting'||s.phase==='finished'||s.phase==='abandoned')return;
+    const teams=this.connectedTeams();
+    if((s.phase==='prep'||s.phase==='live'||s.phase==='post')&&(!teams.A||!teams.B)){
+      // Hold the clock while a dropped connection is inside its reconnection window.
+      this.deadline+=dt;s.remaining=Math.max(0,this.deadline-this.simTime);s.reason='Waiting for a player to reconnect…';return;
+    }
+    if(s.reason==='Waiting for a player to reconnect…')s.reason='';
     s.remaining=Math.max(0,this.deadline-this.simTime);
     if(s.phase==='prep'){
       if(s.remaining<=0){s.phase='live';this.deadline=this.simTime+RULES.roundSeconds;s.remaining=RULES.roundSeconds;}
@@ -82,19 +89,37 @@ export class CombatRoom extends TacticalRoom {
     rt.lastShot=this.simTime;rt.recoil++;p.ammo--;
     // Recoil is applied here, so a modified client cannot disable the ballistic penalty.
     const shot=traceShot(p,this.state.players.values(),mapById(this.state.mapId),p.yaw+recoilYaw+Math.cos(angle)*radius,p.pitch-recoilPitch+Math.sin(angle)*radius);
-    if(shot.target){shot.target.health=Math.max(0,shot.target.health-RULES.damage*(shot.headshot?RULES.headshotMultiplier:1));if(shot.target.health===0)p.kills++;}
-    const event:ShotEvent={id:p.id,shotId:request?.shotId,...shot.origin,dx:shot.dir.x,dy:shot.dir.y,dz:shot.dir.z,distance:shot.distance,hit:!!shot.target,headshot:shot.headshot};this.broadcast('shot',event);
+    let damage=0,killed=false;
+    if(shot.target){const raw=RULES.damage*(shot.headshot?RULES.headshotMultiplier:1);damage=Math.min(shot.target.health,raw);shot.target.health=Math.max(0,shot.target.health-raw);killed=shot.target.health===0;
+      const key=`${p.id}|${shot.target.id}`,record=this.roundDamage.get(key)??{damage:0,hits:0};record.damage+=damage;record.hits++;this.roundDamage.set(key,record);
+      if(killed){p.kills++;this.sendDeathRecap(shot.target);}
+    }
+    const event:ShotEvent={id:p.id,shotId:request?.shotId,targetId:shot.target?.id,damage,killed,...shot.origin,dx:shot.dir.x,dy:shot.dir.y,dz:shot.dir.z,distance:shot.distance,hit:!!shot.target,headshot:shot.headshot};this.broadcast('shot',event);
     const winner=roundWinner(this.state.players.values(),this.state.round,false);if(winner)this.endRound(winner,'Team eliminated');
   }
   private endRound(winner:Team|'draw',reason:string){
     const s=this.state;if(s.phase!=='live')return;
     if(winner==='A')s.scoreA++;else if(winner==='B')s.scoreB++;s.winner=winner;s.reason=reason;
-    if(Math.max(s.scoreA,s.scoreB)>=RULES.winsToMatch){s.phase='finished';s.remaining=0;}
+    if(Math.max(s.scoreA,s.scoreB)>=winsRequired(s.roundLimit)){s.phase='finished';s.remaining=0;}
     else{s.phase='post';this.deadline=this.simTime+RULES.postSeconds;s.remaining=RULES.postSeconds;}
   }
   protected onDisconnected(p:PlayerState){
     // Dropped players die for this round; reconnection restores their seat, never grants a live-round respawn.
     p.health=0;const rt=this.runtime.get(p.id);if(rt)rt.input=emptyInput();
-    if(this.state.phase==='live'){const winner=roundWinner(this.state.players.values(),this.state.round,false);if(winner)this.endRound(winner,'Team eliminated');}
+  }
+  protected onReconnected(p:PlayerState){
+    if(this.state.phase==='prep')p.health=RULES.health;
+    if(this.state.reason==='Waiting for a player to reconnect…')this.state.reason='';
+  }
+  protected onDepartureFinal(_p:PlayerState){
+    if(!['prep','live','post'].includes(this.state.phase))return;
+    const teams=this.connectedTeams();if(teams.A&&teams.B)return;
+    this.state.phase='abandoned';this.state.remaining=0;this.state.winner='';this.state.reason='A team has left the match.';
+  }
+  private connectedTeams(){const count={A:0,B:0};for(const p of this.state.players.values())if(p.connected)count[p.team]++;return count;}
+  private sendDeathRecap(victim:PlayerState){
+    const enemies=[...this.state.players.values()].filter(p=>p.team!==victim.team);
+    const exchanges=enemies.map(opponent=>{const dealt=this.roundDamage.get(`${victim.id}|${opponent.id}`)??{damage:0,hits:0},taken=this.roundDamage.get(`${opponent.id}|${victim.id}`)??{damage:0,hits:0};return {opponentId:opponent.id,username:opponent.username,dealt:Math.round(dealt.damage),dealtHits:dealt.hits,taken:Math.round(taken.damage),takenHits:taken.hits};}).filter(x=>x.dealtHits||x.takenHits);
+    this.clients.find(c=>c.sessionId===victim.id)?.send('death-recap',{round:this.state.round,exchanges});
   }
 }

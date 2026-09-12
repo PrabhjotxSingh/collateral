@@ -1,0 +1,7 @@
+Collateral Map Engine v1.1
+
+- Axis and rotation gizmos for the player reference, spawns, and lights
+- Map clicks no longer reposition the reference capsule
+- Blue Day, Overcast, Night, and custom Babylon .env skyboxes
+- Iterative collision bounds calculation (stack-overflow fix)
+- Export progress modal

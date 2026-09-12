@@ -12,5 +12,5 @@ let game:Game|undefined;
 const ui=new UI(net,settings,s=>{if(game)game.settings=s;music.sync();},()=>game?.enter());
 try{game=new Game(document.querySelector('#game')!,net,settings);}catch{ui.message('A browser with WebGL support is required to play. Enable hardware acceleration and reload.');}
 try{const menu=new MenuScene(document.querySelector('#menu-scene')!);void Promise.race([menu.ready,new Promise(resolve=>setTimeout(resolve,8000))]).finally(()=>document.body.classList.add('app-ready'));}catch{document.body.classList.add('app-ready');ui.message('The menu character could not be displayed.');}
-net.addEventListener('state',()=>{if(net.state)game?.update(net.state);});
+net.addEventListener('state',()=>{if(!net.state)return;const state=net.state;if(state.phase==='waiting')game?.update(state);else void net.ensureMap(state.mapId).then(()=>game?.update(state)).catch(error=>ui.message((error as Error).message));});
 net.addEventListener('left',()=>game?.reset());

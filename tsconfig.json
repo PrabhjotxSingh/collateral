@@ -17,12 +17,15 @@
     ],
     "noEmit": true,
     "useDefineForClassFields": false
+    ,"jsx": "react-jsx"
   },
   "include": [
     "server/src",
     "client/src",
+    "engine/src",
     "shared",
     "tests",
-    "client/vite.config.ts"
+    "client/vite.config.ts",
+    "engine/vite.config.ts"
   ]
 }

@@ -1,6 +1,6 @@
 import {Scene,Engine,ArcRotateCamera,HemisphericLight,DirectionalLight,Vector3,Color3,Color4,Mesh,MeshBuilder,StandardMaterial,TransformNode} from '@babylonjs/core';
 import {Assets,type AssetInstance} from './assets';
-import {DEFAULT_GRIP,GRIP_KEY,parseGrip,storedGrip,type GripProfile,applyGrip} from './grip';
+import {DEFAULT_GRIP,parseGrip,storedGrip,type GripProfile,applyGrip} from './grip';
 import {RULES} from '../../shared/rules.js';
 import type {GameView,ShotEvent} from '../../shared/protocol.js';
 import type {ClipAction} from './animation';
@@ -18,18 +18,19 @@ export class DevTools {
   window.addEventListener('keydown',e=>{if(e.code==='F2'){e.preventDefault();this.toggle();}});
   this.build();
  }
- private apply(){for(const actor of this.actors())if(actor.grip)applyGrip(actor.grip,this.profile);if(this.preview?.actor?.grip)applyGrip(this.preview.actor.grip,this.profile);try{localStorage.setItem(GRIP_KEY,JSON.stringify(this.profile));}catch{}if(this.output)this.output.value=JSON.stringify(this.profile,null,2);}
+ private apply(){for(const actor of this.actors())if(actor.grip)applyGrip(actor.grip,this.profile);if(this.preview?.actor?.grip)applyGrip(this.preview.actor.grip,this.profile);if(this.output)this.output.value=JSON.stringify(this.profile,null,2);}
  private build(){
   const panel=this.panel=document.createElement('aside');panel.id='collateral-dev';panel.hidden=true;
-  panel.innerHTML='<header><strong>COLLATERAL / DEV</strong><button data-close>Close · F2</button></header><p>Local diagnostics. Grip changes affect the third-person Glock only.</p><canvas aria-label="SWAT grip preview"></canvas><small>Drag to orbit · scroll to zoom. Available without another player.</small><div data-poses></div><div data-fields></div><div class="dev-actions"><button data-copy>Copy settings</button><button data-import>Apply JSON</button><button data-reset>Reset grip</button></div><textarea aria-label="Shareable Glock grip settings" spellcheck="false"></textarea><label><input type="checkbox" data-boxes> Hit volumes + collision capsules</label><label><input type="checkbox" data-impacts> Server shot rays + impact markers</label><button data-clear>Clear impacts</button><small>Yellow: server hit box · red: headshot band · cyan: movement capsule. Snapshot positions may differ slightly from smoothed visuals.</small><p data-status>F2 opens/closes this panel; Escape releases the game mouse.</p><output data-timing></output>';
+  panel.innerHTML='<header><strong>COLLATERAL / DEV</strong><button data-close>Close · F2</button></header><nav class="dev-tabs"><button data-tab="weapon" class="active">Weapon</button><button data-tab="collision">Collision</button><button data-tab="performance">Performance</button></nav><section data-panel="weapon"><p>Third-person Glock alignment. Changes last for this session only.</p><canvas aria-label="SWAT grip preview"></canvas><small>Drag to orbit · scroll to zoom.</small><div data-poses></div><div data-fields></div><div class="dev-actions"><button data-copy>Copy settings</button><button data-import>Apply JSON</button><button data-reset>Reset grip</button></div><textarea aria-label="Shareable Glock grip settings" spellcheck="false"></textarea></section><section data-panel="collision" hidden><label><input type="checkbox" data-boxes> Hit volumes + collision capsules</label><label><input type="checkbox" data-impacts> Server shot rays + impact markers</label><button data-clear>Clear impacts</button><small>Yellow: body · red: head · cyan: movement capsule.</small></section><section data-panel="performance" hidden><p>Live rendering timing and first-shot hitch diagnostics.</p><output data-timing></output></section><p data-status>F2 opens/closes this panel; Escape releases the game mouse.</p>';
   document.body.append(panel);this.status=panel.querySelector('[data-status]')!;this.timing=panel.querySelector('[data-timing]')!;this.output=panel.querySelector('textarea')!;
   panel.querySelector('[data-close]')!.addEventListener('click',()=>this.toggle());
+  panel.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(tab=>tab.onclick=()=>{panel.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===tab));panel.querySelectorAll<HTMLElement>('[data-panel]').forEach(x=>x.hidden=x.dataset.panel!==tab.dataset.tab);});
   const fields=panel.querySelector('[data-fields]')!;
   for(const key of ['x','y','z','pitch','yaw','roll','scale'] as const){
    const label=document.createElement('label');label.textContent=key+(['x','y','z'].includes(key)?' (m)':key==='scale'?'':' (°)');
    const input=document.createElement('input');input.type='number';input.dataset.key=key;input.step=key==='scale'?'.01':['x','y','z'].includes(key)?'.001':'1';
    input.min=key==='scale'?'.25':['x','y','z'].includes(key)?'-.5':'-180';input.max=key==='scale'?'2':['x','y','z'].includes(key)?'.5':'180';input.value=String(this.profile[key]);
-   input.addEventListener('input',()=>{try{this.profile=parseGrip({...this.profile,[key]:input.valueAsNumber});this.apply();this.status!.textContent='Saved locally. Copy settings and send the JSON back.';}catch(e){this.status!.textContent=String(e);}});label.append(input);fields.append(label);
+   input.addEventListener('input',()=>{try{this.profile=parseGrip({...this.profile,[key]:input.valueAsNumber});this.apply();this.status!.textContent='Applied for this session. Copy the JSON to keep these values.';}catch(e){this.status!.textContent=String(e);}});label.append(input);fields.append(label);
   }
   const refresh=()=>{panel.querySelectorAll<HTMLInputElement>('[data-key]').forEach(input=>input.value=String(this.profile[input.dataset.key as keyof GripProfile]));this.apply();};
   panel.querySelector('[data-copy]')!.addEventListener('click',async()=>{this.output!.select();try{await navigator.clipboard.writeText(this.output!.value);this.status!.textContent='Copied. Paste these values into our chat.';}catch{this.status!.textContent='Text selected. Press Ctrl+C to copy.';}});
@@ -69,8 +70,9 @@ export class DevTools {
     meshes=[body,head,standing,crouched];meshes.forEach(m=>{m.isPickable=false;m.receiveShadows=false;});this.boxes.set(p.id,meshes);
    }
    const h=p.crouch?RULES.crouchHeight:RULES.height;
-   meshes[0].scaling.set(RULES.radius*2,h,RULES.radius*2);meshes[0].position.set(p.x,p.y+h/2,p.z);meshes[0].setEnabled(true);
-   meshes[1].scaling.set(RULES.radius*2,.3,RULES.radius*2);meshes[1].position.set(p.x,p.y+h-.15,p.z);meshes[1].setEnabled(true);
+   const bodyHeight=Math.max(.1,h-RULES.headHeight-RULES.headTopInset);
+   meshes[0].scaling.set(RULES.radius*2,bodyHeight,RULES.radius*2);meshes[0].position.set(p.x,p.y+bodyHeight/2,p.z);meshes[0].setEnabled(true);
+   meshes[1].scaling.set(RULES.headRadius*2,RULES.headHeight,RULES.headRadius*2);meshes[1].position.set(p.x,p.y+h-RULES.headTopInset-RULES.headHeight/2,p.z);meshes[1].setEnabled(true);
    meshes[2].position.set(p.x,p.y+RULES.height/2,p.z);meshes[2].setEnabled(!p.crouch);
    meshes[3].position.set(p.x,p.y+RULES.crouchHeight/2,p.z);meshes[3].setEnabled(p.crouch);
   }

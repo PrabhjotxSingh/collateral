@@ -51,10 +51,10 @@ Environment variables:
 
 Gameplay bindings can be changed in Settings; Escape, Ctrl and Command remain reserved. Saved Ctrl crouch bindings migrate to C. Sensitivity, horizontal FOV, master volume, effects volume and bindings save in localStorage. Usernames and reconnection secrets use tab-scoped sessionStorage; they are session identities, not accounts.
 
-- First to five wins. Draws award no points, so there is no fixed nine-round cap.
+- The host selects best-of-3, 5, 7 or 9 and can choose any installed map or a random map.
 - 100 seconds live, 6 seconds preparation, 3 seconds round-result display.
 - Team A and Team B have identical rules. Spawn sides alternate each round for map fairness; teams and scores stay intact.
-- Eliminate the opposing team to win immediately. At timeout, the team with more living connected players wins. Equal survivors (including both eliminated) means a draw and no points for either team. A 2–1 survivor advantage only decides the round at timeout; the round continues before the buzzer.
+- A round ends on the first casualty. At timeout, the team with more living connected players wins; equal survivors means a draw with no points. If a team leaves completely, the match stops without awarding more rounds.
 - No mid-round respawns, healing, economy, progression or bots. Dead players spectate their surviving teammate.
 - Glock: 17-round magazine, 51 reserve, manual 1.7-second reload, 40 body damage, 2.5× head multiplier, minimum 190 ms between shots. Teammates block shots; friendly damage is disabled.
 - Walking 3.6 m/s, sprinting 5.2 m/s, ADS walking 2.1 m/s, crouching 1.65 m/s. Air control is capped, and holding jump cannot repeatedly jump.
@@ -66,6 +66,7 @@ Gameplay bindings can be changed in Settings; Escape, Ctrl and Command remain re
 ```text
 client/src/       Babylon view, input, assets, audio, settings, isolated HTML/CSS UI
 client/public/    Runtime assets, including the tactical soldier (see ASSETS.md)
+engine/           Separate React + Babylon map-authoring application
 server/src/       Identity registry, live lobby directory, room state, authoritative combat
 shared/          Rules, maps/colliders, protocol, deterministic movement and ray tests
 tests/           Rule tests and four-client WebSocket integration
@@ -116,7 +117,7 @@ it does not change server rules, health, collision or shot validation.
 The panel includes an orbitable SWAT/Glock preview, available even from the menu
 without a second player. Drag to orbit and scroll to zoom. Adjust X/Y/Z in metres,
 pitch/yaw/roll in degrees, and relative scale. Values apply live to third-person
-Glocks and save on this browser. They do not change the first-person viewmodel.
+Glocks for the current session only. They do not change the first-person viewmodel.
 Use the pose buttons to check idle, walk, crouch, jump and death. Click Copy settings
 and paste the JSON into chat; Apply JSON imports a profile, and Reset grip restores the approved X −0.025, Y 0.037, Z 0.027 fit. Close the panel with F2, then click the game to capture the mouse.
 
@@ -130,3 +131,33 @@ each local shot to help identify remaining first-shot stalls on your GPU.
 Muzzle lighting now uses one persistent light instead of adding/removing scene lights
 on every shot. Effect shaders and the casing material/physics path warm up before use.
 The death clip releases both arms before the collapse; the pistol follows the relaxed hand.
+
+## Map Engine
+
+Run the separate editor from the project root:
+
+```sh
+npm run dev:engine
+```
+
+Open **http://localhost:5174**, import a binary `.glb`, and adjust its uniform
+scale and vertical offset. Select the 1.8 m player-reference capsule, spawn, or
+light in the viewport/list and move it with the colored position/rotation gizmos.
+Add two spawns for Team A and two for Team B. Point lights can be edited for
+color, power, and range. Each map may use Blue Day, Overcast, or Night, or bundle
+a custom Babylon `.env` skybox. Export shows collision/compression progress and
+produces one ZIP containing:
+
+```text
+map-id/
+  map.glb
+  map.json
+  skybox.env        # custom sky only
+  INSTALL.txt
+```
+
+Extract the exported map folder into `client/public/maps/`, restart the server,
+and it appears automatically in the host's lobby map dropdown. `map.json` contains
+the versioned metadata, bounds, spawns, lights, and baked world-space triangle
+collision used by the authoritative server. Invalid packages and folders without
+a matching `map.glb` are skipped safely at startup.

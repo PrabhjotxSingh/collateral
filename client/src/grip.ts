@@ -1,7 +1,6 @@
 import {TransformNode} from '@babylonjs/core';
 export interface GripProfile {version:1;weapon:'glock';character:'swat';x:number;y:number;z:number;pitch:number;yaw:number;roll:number;scale:number}
 export const DEFAULT_GRIP:GripProfile={version:1,weapon:'glock',character:'swat',x:-0.025,y:0.037,z:0.027,pitch:0,yaw:0,roll:0,scale:1};
-export const GRIP_KEY='collateral.swat-glock-grip.v1';
 export function parseGrip(value:unknown):GripProfile{
  const v=value as Partial<GripProfile>;if(!v||v.version!==1||v.weapon!=='glock'||v.character!=='swat')throw new Error('Expected a SWAT/Glock v1 profile');
  const out={...DEFAULT_GRIP};
@@ -12,5 +11,6 @@ export function parseGrip(value:unknown):GripProfile{
   out[key]=n;
  }return out;
 }
-export function storedGrip():GripProfile{try{return parseGrip(JSON.parse(localStorage.getItem(GRIP_KEY)??'null'));}catch{return {...DEFAULT_GRIP};}}
+/** Dev tuning is deliberately session-only. Committed defaults are the source of truth. */
+export function storedGrip():GripProfile{return {...DEFAULT_GRIP};}
 export function applyGrip(node:TransformNode,p:GripProfile){node.position.set(p.x,p.y,p.z);node.rotation.set(p.pitch*Math.PI/180,p.yaw*Math.PI/180,p.roll*Math.PI/180);node.scaling.setAll(p.scale);}

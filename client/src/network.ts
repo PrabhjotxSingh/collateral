@@ -1,12 +1,14 @@
 import { Client, type Room } from 'colyseus.js';
-import type { GameView,Input,Lobby,ShotEvent } from '../../shared/protocol.js';
+import type { GameView,Input,Lobby,ShotEvent,DeathRecap,MapSummary } from '../../shared/protocol.js';
+import {MAPS,installMaps,type GameMap} from '../../shared/maps.js';
 const endpoint=import.meta.env.VITE_SERVER_URL??`${location.origin}${import.meta.env.DEV?'/socket':''}`;
 export class Network extends EventTarget {
   constructor(){super();window.addEventListener('pagehide',()=>{void this.leave();});}
   private client=new Client(endpoint);identity?:Room;match?:Room;
-  username='';token='';lobbies:Lobby[]=[];state?:GameView;private intentional=new Set<Room>();
+  username='';token='';lobbies:Lobby[]=[];maps:MapSummary[]=[];state?:GameView;private intentional=new Set<Room>();
   private emit(name:string,value?:unknown){this.dispatchEvent(new CustomEvent(name,{detail:value}));}
   async connect(username:string){
+    if(!this.maps.length){const response=await fetch('/api/maps');if(!response.ok)throw new Error('Could not load installed maps.');this.maps=await response.json() as MapSummary[];}
     const saved=this.readSaved('collateral.identity');let room:Room;
     if(saved?.reconnectionToken&&saved.username.toLowerCase()===username.toLowerCase()){
       try{room=await this.client.reconnect(saved.reconnectionToken);}catch{room=await this.client.create('session',{username,resumeToken:saved.token});}
@@ -37,6 +39,7 @@ export class Network extends EventTarget {
     room.onStateChange(state=>{this.state=state.toJSON() as GameView;this.emit('state',this.state);});
     room.onMessage('error',message=>this.emit('error',message));
     room.onMessage('shot',(shot:ShotEvent)=>this.emit('shot',shot));
+    room.onMessage('death-recap',(recap:DeathRecap)=>this.emit('death-recap',recap));
     room.onMessage('fire-rejected',event=>this.emit('fire-rejected',event));
     room.onMessage('step',step=>this.emit('step',step));room.onMessage('reload',event=>this.emit('reload',event));
     room.onError((_code,message)=>this.emit('error',message));
@@ -53,7 +56,8 @@ export class Network extends EventTarget {
     }
     if(this.match!==room)return;await this.leave();this.emit('error','Could not reconnect to the match.');
   }
-  send(type:'team'|'start'|'input'|'fire'|'reload',value?:unknown){this.match?.send(type,value);}
+  send(type:'team'|'start'|'round-limit'|'map-selection'|'back-lobby'|'input'|'fire'|'reload',value?:unknown){this.match?.send(type,value);}
+  async ensureMap(id:string){if(MAPS.some(map=>map.id===id&&map.asset.startsWith('/maps/')))return;const response=await fetch(`/api/maps/${encodeURIComponent(id)}`);if(!response.ok)throw new Error('The selected map could not be loaded.');const map=await response.json() as GameMap;installMaps([...MAPS.filter(m=>m.id!==map.id),map]);}
   async leaveMatch(){
     const room=this.match;if(room)this.intentional.add(room);
     this.match=undefined;this.state=undefined;sessionStorage.removeItem('collateral.match');

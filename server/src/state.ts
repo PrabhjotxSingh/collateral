@@ -7,6 +7,6 @@ export class PlayerState extends Schema {
 }
 defineTypes(PlayerState,{id:'string',username:'string',team:'string',connected:'boolean',x:'number',y:'number',z:'number',yaw:'number',pitch:'number',health:'number',ammo:'number',reserve:'number',vx:'number',vy:'number',vz:'number',grounded:'boolean',stepPhase:'number',sprint:'boolean',crouch:'boolean',ads:'boolean',reloading:'boolean',ack:'number',kills:'number'});
 export class GameState extends Schema {
-  players=new MapSchema<PlayerState>();phase:Phase='waiting';mapId='depot';hostId='';lobbyName='';round=0;scoreA=0;scoreB=0;remaining=0;winner='';reason='';
+  players=new MapSchema<PlayerState>();phase:Phase='waiting';mapId='depot';mapChoice='random';hostId='';lobbyName='';round=0;roundLimit=9;scoreA=0;scoreB=0;remaining=0;winner='';reason='';
 }
-defineTypes(GameState,{players:{map:PlayerState},phase:'string',mapId:'string',hostId:'string',lobbyName:'string',round:'number',scoreA:'number',scoreB:'number',remaining:'number',winner:'string',reason:'string'});
+defineTypes(GameState,{players:{map:PlayerState},phase:'string',mapId:'string',mapChoice:'string',hostId:'string',lobbyName:'string',round:'number',roundLimit:'number',scoreA:'number',scoreB:'number',remaining:'number',winner:'string',reason:'string'});

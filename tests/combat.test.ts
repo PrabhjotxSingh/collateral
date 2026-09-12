@@ -21,7 +21,7 @@ test('hitscan respects cover, body damage zone, heads and friendly blockers',()=
 test('symmetric elimination and survivor-count timeouts have no team-role advantage',()=>{
  const a=player('a','A',0,0),b=player('b','B',0,0),c=player('c','A',0,0),d=player('d','B',0,0);
  assert.equal(roundWinner([a,b],1,false),undefined);assert.equal(roundWinner([a,b],1,true),'draw');assert.equal(roundWinner([a,b],5,true),'draw');
- d.health=0;assert.equal(roundWinner([a,b,c,d],1,false),undefined);assert.equal(roundWinner([a,b,c,d],1,true),'A');
+ d.health=0;assert.equal(roundWinner([a,b,c,d],1,false),'A');assert.equal(roundWinner([a,b,c,d],1,true),'A');
  c.health=0;assert.equal(roundWinner([a,b,c,d],1,true),'draw');a.health=0;assert.equal(roundWinner([a,b,c,d],2,false),'B');
  b.health=0;assert.equal(roundWinner([a,b,c,d],2,false),'draw');
 });
@@ -52,4 +52,13 @@ test('draw rounds award no points, continue past round nine, and five decisive w
   if(win<5){assert.equal(state.phase,'post');engine.simTime=engine.deadline;engine.tick(1/60);}
  }
  assert.equal(state.phase,'finished');assert.equal(state.winner,'A');
+});
+test('host match length controls the win target and an empty team abandons without awarding a round',()=>{
+ const room=new CombatRoom(),state=new GameState();room.setState(state);state.roundLimit=3;state.phase='live';
+ const a=player('a','A',0,0),b=player('b','B',0,0);state.players.set('a',a);state.players.set('b',b);
+ const engine=room as any;engine.endRound('A','test');assert.equal(state.scoreA,1);assert.equal(state.phase,'post');
+ state.phase='live';engine.endRound('A','test');assert.equal(state.scoreA,2);assert.equal(state.phase,'finished');
+ state.scoreA=0;state.phase='live';b.connected=false;engine.onDepartureFinal(b);
+ assert.equal(state.phase,'abandoned');assert.equal(state.scoreA,0);assert.match(state.reason,/left/i);
+ engine.tick(10);assert.equal(state.scoreA,0);
 });
