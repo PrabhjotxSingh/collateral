@@ -66,9 +66,9 @@
       "scale": 1
     },
     "weapon": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
+      "x": 0.18,
+      "y": -0.17,
+      "z": 0.4,
       "pitch": 0,
       "yaw": 180,
       "roll": 0,
@@ -76,14 +76,15 @@
     },
     "ads": {
       "x": 0,
-      "y": 0,
-      "z": 0,
+      "y": -0.119,
+      "z": 0.4,
       "pitch": 0,
       "yaw": 180,
       "roll": 0,
       "scale": 1
     },
     "adsFov": 0.82,
+    "previewFov": 95,
     "fingers": {}
   },
   "thirdPerson": {

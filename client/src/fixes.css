@@ -104,3 +104,7 @@
   border-color: #e8a54c;
   box-shadow: inset 3px 0 #e8a54c;
 }
+.loadout-groups { display: grid; gap: 28px; }
+.loadout-groups > section > h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .16em; color: #93a1aa; }
+.loadout-groups .loadout-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.loadout-groups .weapon { grid-column: auto; }

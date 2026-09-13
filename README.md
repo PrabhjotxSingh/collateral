@@ -2,8 +2,8 @@
  
 Babylon.js + Vite client, Node.js + Colyseus server, and shared rules/collision.
 Includes the uploaded SWAT character with native idle/walk/jump, derived crouch/strafe,
-a gun-only Glock attached to its right hand, and the separate animated first-person
-Glock with arms. Daylight uses warm sun, cool ambient fill, environment reflections,
+a gun-only Glock attached to its right hand, and a combined animated first-person
+Glock-and-arms view model. Daylight uses warm sun, cool ambient fill, environment reflections,
 2048px filtered shadows, ACES tone mapping and subtle half-resolution SSAO on WebGL2.
 The menu operator and soundtrack remain separate from match actors.
 See ASSETS.md for rebuilding and attachment details; CREDITS.md lists bundled sources.
@@ -110,8 +110,8 @@ Implementation references: [Colyseus documentation](https://docs.colyseus.io/) a
 
 ## Developer tools
 
-In development (npm run dev), press F2. In a production build, open
-http://localhost:2567/?dev=1 and press F2. This opts into local diagnostics;
+In development (`npm run dev`), press F2. The panel is excluded from ordinary
+production sessions. This opts into local diagnostics;
 it does not change server rules, health, collision or shot validation.
 
 The panel includes an orbitable SWAT/Glock preview, available even from the menu
@@ -127,6 +127,14 @@ These can differ slightly from the interpolated visible model. Impact diagnostic
 show confirmed server rays and endpoints (up to 20 shots), rather than predicting hits.
 Clear impacts removes the marks. Frame timing includes a one-second window after
 each local shot to help identify remaining first-shot stalls on your GPU.
+
+The Sandbox tab launches any installed map as a one-player authoritative test room
+with unlimited time. Choose a callsign first, select the map, and launch it. It uses
+the normal server movement, collision, weapons, effects, and map-loading paths, but
+does not require an opposing team and cannot award rounds. The server accepts this
+mode only while running outside production.
+The map dropdown refreshes directly from the server whenever the Sandbox tab opens,
+so maps added since page load appear without reconnecting.
 
 Muzzle lighting now uses one persistent light instead of adding/removing scene lights
 on every shot. Effect shaders and the casing material/physics path warm up before use.
@@ -164,4 +172,26 @@ a matching `map.glb` are skipped safely at startup.
 Open `http://localhost:5174` and choose Map Editor or Character / Weapon Framer.
 The framer exports self-contained packages for `client/public/weapons/primary` and
 `client/public/weapons/secondary`. Installed packages are discovered by the server and
-appear in Loadout automatically.
+appear in Loadout automatically. First-person packages use one combined arms-and-gun
+`view.glb`; separate first-person arms are legacy-only. First Person and Third Person
+are isolated tabs. The first-person Play Test switches to the fixed player-eye camera,
+while Edit View exposes the model and muzzle gizmos. Map each GLB's own Idle, Draw,
+Fire, and Reload clips in the Animation Connector before export.
+The editor defines **+Z as front** in both views. First-person imports are automatically
+fitted into the player viewport, and can be re-fitted with Auto-frame. Capture Hip
+before ADS; the ADS preview always eases from that saved Hip baseline. Move, Rotate,
+and Scale are separate gizmo modes. The muzzle flash color supports both a visual
+picker and a six-digit hex value.
+
+Exported weapon ZIPs can be imported back into the framer to continue editing their
+models, sounds, transforms, effects, ballistics, and animation mappings. Hip and ADS
+captures require confirmation. New packages use the same horizontal-FOV camera and
+camera-relative transform hierarchy in both Play Test and the game; procedural motion
+is layered as a zero-centered offset, so it cannot shift the authored sights. Each
+animation action can use a model clip or Collateral's built-in fallback and can be
+previewed independently.
+
+Magazine size and reserve ammunition are defined per weapon. During a round, the
+server stores ammunition independently for every weapon a player uses. The Loadout
+groups every discovered package by Primary or Secondary and allows one selection from
+each group; number keys and the mouse wheel switch between the equipped pair.

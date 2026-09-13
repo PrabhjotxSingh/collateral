@@ -32,6 +32,19 @@ interface Runtime {
   sprintSuppressed: boolean;
   queuedFire: boolean;
   pendingFire?: FireRequest;
+  inventory: Map<string, { ammo: number; reserve: number }>;
+}
+export function switchWeaponAmmo(
+  inventory: Map<string, { ammo: number; reserve: number }>,
+  previous: string,
+  next: string,
+  current: { ammo: number; reserve: number },
+  fresh: { magazine: number; reserve: number },
+) {
+  inventory.set(previous, { ...current });
+  const restored = inventory.get(next) ?? { ammo: fresh.magazine, reserve: fresh.reserve };
+  inventory.set(next, { ...restored });
+  return { ...restored };
 }
 export class CombatRoom extends TacticalRoom {
   private runtime = new Map<string, Runtime>();
@@ -111,6 +124,26 @@ export class CombatRoom extends TacticalRoom {
     this.hostWait = 0;
     super.startMatch(client);
     this.prepRound();
+    if (this.devSolo) {
+      this.hostReady = true;
+      this.state.phase = "live";
+      this.state.remaining = 0;
+      this.state.reason = "DEV SANDBOX · UNLIMITED TIME";
+    }
+  }
+  protected setWeapon(client: Client, value: unknown) {
+    const p = this.state.players.get(client.sessionId), rt = this.runtime.get(client.sessionId);
+    if (!p || p.weapon === value) return super.setWeapon(client, value);
+    const previous = p.weapon, current = { ammo: p.ammo, reserve: p.reserve };
+    super.setWeapon(client, value);
+    if (!rt) return;
+    const restored = switchWeaponAmmo(rt.inventory, previous, p.weapon, current, this.stats(p));
+    p.ammo = restored.ammo;
+    p.reserve = restored.reserve;
+    p.reloading = false;
+    rt.reloadEnd = 0;
+    rt.queuedFire = false;
+    rt.pendingFire = undefined;
   }
   private prepRound() {
     const s = this.state,
@@ -155,6 +188,7 @@ export class CombatRoom extends TacticalRoom {
         raiseEnd: 0,
         sprintSuppressed: false,
         queuedFire: false,
+        inventory: new Map([[p.weapon, { ammo: stats.magazine, reserve: stats.reserve }]]),
       });
     }
   }
@@ -167,8 +201,14 @@ export class CombatRoom extends TacticalRoom {
       s.phase === "abandoned"
     )
       return;
+    if (this.devSolo) {
+      s.phase = "live";
+      s.remaining = 0;
+      s.reason = "DEV SANDBOX · UNLIMITED TIME";
+    }
     const teams = this.connectedTeams();
     if (
+      !this.devSolo &&
       (s.phase === "prep" || s.phase === "live" || s.phase === "post") &&
       (!teams.A || !teams.B)
     ) {
@@ -280,7 +320,7 @@ export class CombatRoom extends TacticalRoom {
         rt.pendingFire = undefined;
       }
     }
-    const winner = roundWinner(s.players.values(), s.round, s.remaining <= 0);
+    const winner = this.devSolo ? undefined : roundWinner(s.players.values(), s.round, s.remaining <= 0);
     if (winner)
       this.endRound(
         winner,
@@ -384,7 +424,7 @@ export class CombatRoom extends TacticalRoom {
       headshot: shot.headshot,
     };
     this.broadcast("shot", event);
-    const winner = roundWinner(
+    const winner = this.devSolo ? undefined : roundWinner(
       this.state.players.values(),
       this.state.round,
       false,

@@ -30,15 +30,17 @@ export class Network extends EventTarget {
   state?: GameView;
   private intentional = new Set<Room>();
   private weaponCache = new Map<string, WeaponManifest>();
+  async refreshMaps() {
+    const response = await fetch("/api/maps", { cache: "no-store" });
+    if (!response.ok) throw new Error("Could not load installed maps.");
+    this.maps = (await response.json()) as MapSummary[];
+    return this.maps;
+  }
   private emit(name: string, value?: unknown) {
     this.dispatchEvent(new CustomEvent(name, { detail: value }));
   }
   async connect(username: string) {
-    if (!this.maps.length) {
-      const response = await fetch("/api/maps");
-      if (!response.ok) throw new Error("Could not load installed maps.");
-      this.maps = (await response.json()) as MapSummary[];
-    }
+    if (!this.maps.length) await this.refreshMaps();
     if (!this.weapons.length) {
       const response = await fetch("/api/weapons");
       if (!response.ok) throw new Error("Could not load installed weapons.");
@@ -116,6 +118,17 @@ export class Network extends EventTarget {
         token: this.token,
       }),
     );
+  }
+  async startDevSolo(mapId: string) {
+    if (!this.identity) throw new Error("Choose a callsign before launching the sandbox.");
+    if (!this.maps.some((map) => map.id === mapId)) throw new Error("Choose an installed map.");
+    if (this.match) await this.leaveMatch();
+    this.bindMatch(await this.client.create("tactical", {
+      name: "Local Dev Sandbox",
+      token: this.token,
+      devSolo: true,
+      mapId,
+    }));
   }
   async join(roomId: string, password = "") {
     this.bindMatch(

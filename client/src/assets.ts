@@ -66,6 +66,7 @@ export class Assets {
     placeholder?: Mesh,
   ) {
     const disposers: AssetInstance[] = [];
+    // Legacy two-file packages still load, but new packages contain arms in view.glb.
     if (manifest.assets.arms) {
       const arms = await this.instance(manifest.assets.arms, parent);
       if (arms) {
@@ -92,13 +93,23 @@ export class Assets {
       manifest.assets.view,
       parent,
       placeholder,
-      { weapon: true },
+      {
+        weapon: true,
+        exactWeaponTransform: manifest.firstPerson.editorFramed === true,
+        animationMap: manifest.firstPerson.animations,
+      },
     );
     if (!weapon) {
       for (const item of disposers) item.dispose();
       return null;
     }
     this.frame(weapon.root, manifest.firstPerson.weapon);
+    for (const node of weapon.root.getChildTransformNodes()) {
+      const value = Object.entries(manifest.firstPerson.fingers).find(
+        ([name]) => node.name.endsWith(name),
+      )?.[1];
+      if (value) node.rotationQuaternion = new Quaternion(value.x, value.y, value.z, value.w);
+    }
     const muzzle = new TransformNode(`${manifest.id}-view-muzzle`, this.scene);
     muzzle.parent = weapon.root;
     this.frame(muzzle, manifest.effects.muzzle.firstPerson);
@@ -115,7 +126,9 @@ export class Assets {
     if (!actor.grip || !manifest.assets.world) return null;
     actor.worldWeapon?.dispose();
     this.frame(actor.grip, manifest.thirdPerson.weapon);
-    const weapon = await this.instance(manifest.assets.world, actor.grip);
+    const weapon = await this.instance(manifest.assets.world, actor.grip, undefined, {
+      animationMap: manifest.thirdPerson.animations,
+    });
     actor.worldWeapon = weapon ?? undefined;
     if (weapon) {
       const muzzle = new TransformNode(
@@ -181,7 +194,9 @@ export class Assets {
     options: {
       characterHeight?: number;
       weapon?: boolean;
+      exactWeaponTransform?: boolean;
       menu?: boolean;
+      animationMap?: Partial<Record<import("./animation").ClipAction, string>>;
     } = {},
   ): Promise<AssetInstance | null> {
     const container = await this.load(path);
@@ -202,7 +217,7 @@ export class Assets {
       instance.animationGroups.push(
         ...createGlockClips(instance.animationGroups[0]),
       );
-    const clips = new ClipPlayer(instance.animationGroups);
+    const clips = new ClipPlayer(instance.animationGroups, options.animationMap);
     clips.play("idle");
     // Evaluate the supplied idle stance before fitting, including skinning.
     for (const group of instance.animationGroups)
@@ -215,8 +230,10 @@ export class Assets {
         fitCharacter(fitted, options.characterHeight);
         // SWAT's native forward direction is +Z, matching authoritative yaw.
       }
-      if (options.weapon) {
+      if (options.weapon && !options.exactWeaponTransform) {
         fitted.rotation.y = Math.PI; // Source muzzle faces -Z; game camera looks +Z.
+      }
+      if (options.weapon) {
         for (const mesh of fitted.getChildMeshes()) mesh.renderingGroupId = 1;
       }
     } catch (error) {

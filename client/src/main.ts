@@ -50,6 +50,7 @@ net.addEventListener("state", () => {
   if (!net.state) return;
   const state = net.state;
   if (state.phase === "waiting") {
+    setLoading(false);
     game?.update(state);
     return;
   }
@@ -63,7 +64,11 @@ net.addEventListener("state", () => {
         .ensureMap(state.mapId, (fraction) =>
           setLoading(true, "DOWNLOADING MAP DATA", 2 + fraction * 46),
         )
-        .then(() => game?.update(state))
+        .then(() => {
+          const latest = net.state;
+          if (latest && latest.mapId === state.mapId && latest.phase !== "waiting")
+            game?.update(latest);
+        })
         .catch((error) => {
           downloadingMapId = undefined;
           setLoading(false);
@@ -75,8 +80,16 @@ net.addEventListener("state", () => {
   downloadingMapId = undefined;
   // The prep countdown is held server-side until the host's client reports it
   // finished loading; show that as a full-screen wait, not a small HUD banner.
-  if (state.phase === "prep" && state.reason.startsWith("Waiting for the host"))
+  if (game?.mapReady && state.phase === "prep" && state.reason.startsWith("Waiting for the host")) {
     setLoading(true, "WAITING FOR HOST TO FINISH LOADING…", 100);
+    if (state.hostId === net.match?.sessionId) net.send("ready");
+  } else if (game?.mapReady || ["finished", "abandoned"].includes(state.phase)) {
+    setLoading(false);
+  }
   game?.update(state);
 });
-net.addEventListener("left", () => game?.reset());
+net.addEventListener("left", () => {
+  downloadingMapId = undefined;
+  setLoading(false);
+  game?.reset();
+});

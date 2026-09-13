@@ -14,6 +14,7 @@ export interface WeaponManifest {
   name: string;
   slot: WeaponSlot;
   assets: {
+    /** @deprecated View models now include their own arms. */
     arms?: string;
     view?: string;
     character?: string;
@@ -44,18 +45,30 @@ export interface WeaponManifest {
     };
   };
   firstPerson: {
+    /** @deprecated Kept so older packages remain loadable. */
     arms: FrameTransform;
     weapon: FrameTransform;
     ads: FrameTransform;
     adsFov: number;
     fingers: Record<string, { x: number; y: number; z: number; w: number }>;
+    animations?: Partial<Record<WeaponAnimationAction, string>>;
+    /** True when transforms were authored camera-relative in Collateral Engine. */
+    editorFramed?: boolean;
+    /** Editor preview FOV; informative only, player settings remain authoritative. */
+    previewFov?: number;
   };
   thirdPerson: {
     character: FrameTransform;
     weapon: FrameTransform;
     fingers?: Record<string, { x: number; y: number; z: number; w: number }>;
+    animations?: Partial<Record<WeaponAnimationAction, string>>;
   };
 }
+export type WeaponAnimationAction =
+  | "idle"
+  | "draw"
+  | "fire"
+  | "reload";
 export interface WeaponSummary {
   id: string;
   name: string;

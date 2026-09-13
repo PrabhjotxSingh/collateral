@@ -44,6 +44,8 @@ export class Game {
   private players = new Map<string, Mesh>();
   private keys = new Set<string>();
   private mapId = "";
+  private completedMapId = "";
+  get mapReady() { return this.completedMapId === this.mapId && !!this.mapId; }
   private environment: Mesh[] = [];
   private mapLights: PointLight[] = [];
   private sky: Mesh;
@@ -156,7 +158,7 @@ export class Game {
     this.audio = new TacticalAudio(() => this.settings);
     this.physics = new CosmeticPhysics(this.scene);
     this.effects = new ShotEffects(this.scene);
-    this.dev = new DevTools(this.scene, () => this.actorAssets.values());
+    this.dev = new DevTools(this.scene, () => this.actorAssets.values(), network);
     this.tags.id = "name-tags";
     document.body.append(this.tags);
     this.scene.setRenderingAutoClearDepthStencil(1, true, true, true);
@@ -364,6 +366,7 @@ export class Game {
     return m;
   }
   private async loadMap(id: string) {
+    this.completedMapId = "";
     // mapId is committed synchronously, before any await, so a re-entrant
     // update() during this async load can never start a second loadMap for it.
     this.mapId = id;
@@ -448,6 +451,7 @@ export class Game {
         }
       }
     } finally {
+      this.completedMapId = id;
       setLoading(false);
       // Tells the server this client is done — the host's signal releases the
       // prep-round countdown, which is held until then so nobody starts blind.
@@ -824,9 +828,9 @@ export class Game {
         : 0;
     this.gun.setEnabled(me.health > 0);
     this.gun.position.set(
-      motion.x + pose.x,
-      motion.y + pose.y - switchDrop,
-      motion.z + pose.z,
+      motion.x - 0.18 * (1 - motion.ads) + pose.x,
+      motion.y - (-0.17 + 0.051 * motion.ads) + pose.y - switchDrop,
+      motion.z - 0.4 + pose.z,
     );
     this.gun.rotation.set(
       motion.pitch +

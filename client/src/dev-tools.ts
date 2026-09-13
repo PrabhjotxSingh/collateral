@@ -4,6 +4,7 @@ import {DEFAULT_GRIP,parseGrip,storedGrip,type GripProfile,applyGrip} from './gr
 import {RULES} from '../../shared/rules.js';
 import type {GameView,ShotEvent} from '../../shared/protocol.js';
 import type {ClipAction} from './animation';
+import type {Network} from './network';
 import './dev-tools.css';
 
 /** Local visual diagnostics. Never sends positions, damage or grip settings to the server. */
@@ -13,7 +14,7 @@ export class DevTools {
  private boxMaterial?:StandardMaterial;private headMaterial?:StandardMaterial;private capsuleMaterial?:StandardMaterial;private markMaterials:StandardMaterial[]=[];
  private preview?:{engine:Engine;scene:Scene;actor?:AssetInstance};private open=false;private showBoxes=false;private showImpacts=false;
  private status?:HTMLElement;private timing?:HTMLElement;private output?:HTMLTextAreaElement;private last=performance.now();private peak=0;private shotStart=0;private shotPeak=0;
- constructor(private scene:Scene,private actors:()=>Iterable<AssetInstance>){
+ constructor(private scene:Scene,private actors:()=>Iterable<AssetInstance>,private network:Network){
   if(!this.available)return;
   window.addEventListener('keydown',e=>{if(e.code==='F2'){e.preventDefault();this.toggle();}});
   this.build();
@@ -21,10 +22,10 @@ export class DevTools {
  private apply(){for(const actor of this.actors())if(actor.grip)applyGrip(actor.grip,this.profile);if(this.preview?.actor?.grip)applyGrip(this.preview.actor.grip,this.profile);if(this.output)this.output.value=JSON.stringify(this.profile,null,2);}
  private build(){
   const panel=this.panel=document.createElement('aside');panel.id='collateral-dev';panel.hidden=true;
-  panel.innerHTML='<header><strong>COLLATERAL / DEV</strong><button data-close>Close · F2</button></header><nav class="dev-tabs"><button data-tab="weapon" class="active">Weapon</button><button data-tab="collision">Collision</button><button data-tab="performance">Performance</button></nav><section data-panel="weapon"><p>Third-person Glock alignment. Changes last for this session only.</p><canvas aria-label="SWAT grip preview"></canvas><small>Drag to orbit · scroll to zoom.</small><div data-poses></div><div data-fields></div><div class="dev-actions"><button data-copy>Copy settings</button><button data-import>Apply JSON</button><button data-reset>Reset grip</button></div><textarea aria-label="Shareable Glock grip settings" spellcheck="false"></textarea></section><section data-panel="collision" hidden><label><input type="checkbox" data-boxes> Hit volumes + collision capsules</label><label><input type="checkbox" data-impacts> Server shot rays + impact markers</label><button data-clear>Clear impacts</button><small>Yellow: body · red: head · cyan: movement capsule.</small></section><section data-panel="performance" hidden><p>Live rendering timing and first-shot hitch diagnostics.</p><output data-timing></output></section><p data-status>F2 opens/closes this panel; Escape releases the game mouse.</p>';
+  panel.innerHTML='<header><strong>COLLATERAL / DEV</strong><button data-close>Close · F2</button></header><nav class="dev-tabs"><button data-tab="weapon" class="active">Weapon</button><button data-tab="sandbox">Sandbox</button><button data-tab="collision">Collision</button><button data-tab="performance">Performance</button></nav><section data-panel="weapon"><p>Third-person Glock alignment. Changes last for this session only.</p><canvas aria-label="SWAT grip preview"></canvas><small>Drag to orbit · scroll to zoom.</small><div data-poses></div><div data-fields></div><div class="dev-actions"><button data-copy>Copy settings</button><button data-import>Apply JSON</button><button data-reset>Reset grip</button></div><textarea aria-label="Shareable Glock grip settings" spellcheck="false"></textarea></section><section data-panel="sandbox" hidden><h3>SINGLE-PLAYER MAP TEST</h3><p>Launch one player with unlimited time. Server collision, movement and weapons remain active.</p><label>Map<select data-sandbox-map></select></label><button data-launch-sandbox>Launch sandbox</button><small>Choose a callsign first. Sandbox rooms are development-only.</small></section><section data-panel="collision" hidden><label><input type="checkbox" data-boxes> Hit volumes + collision capsules</label><label><input type="checkbox" data-impacts> Server shot rays + impact markers</label><button data-clear>Clear impacts</button><small>Yellow: body · red: head · cyan: movement capsule.</small></section><section data-panel="performance" hidden><p>Live rendering timing and first-shot hitch diagnostics.</p><output data-timing></output></section><p data-status>F2 opens/closes this panel; Escape releases the game mouse.</p>';
   document.body.append(panel);this.status=panel.querySelector('[data-status]')!;this.timing=panel.querySelector('[data-timing]')!;this.output=panel.querySelector('textarea')!;
   panel.querySelector('[data-close]')!.addEventListener('click',()=>this.toggle());
-  panel.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(tab=>tab.onclick=()=>{panel.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===tab));panel.querySelectorAll<HTMLElement>('[data-panel]').forEach(x=>x.hidden=x.dataset.panel!==tab.dataset.tab);});
+  panel.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(tab=>tab.onclick=()=>{panel.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===tab));panel.querySelectorAll<HTMLElement>('[data-panel]').forEach(x=>x.hidden=x.dataset.panel!==tab.dataset.tab);if(tab.dataset.tab==='sandbox')void this.refreshSandboxMaps();});
   const fields=panel.querySelector('[data-fields]')!;
   for(const key of ['x','y','z','pitch','yaw','roll','scale'] as const){
    const label=document.createElement('label');label.textContent=key+(['x','y','z'].includes(key)?' (m)':key==='scale'?'':' (°)');
@@ -39,10 +40,12 @@ export class DevTools {
   panel.querySelector<HTMLInputElement>('[data-boxes]')!.onchange=e=>{this.showBoxes=(e.target as HTMLInputElement).checked;};
   panel.querySelector<HTMLInputElement>('[data-impacts]')!.onchange=e=>{this.showImpacts=(e.target as HTMLInputElement).checked;if(!this.showImpacts)this.clearMarks();};
   panel.querySelector('[data-clear]')!.addEventListener('click',()=>this.clearMarks());
+  panel.querySelector('[data-launch-sandbox]')!.addEventListener('click',async()=>{const map=(panel.querySelector('[data-sandbox-map]') as HTMLSelectElement).value;try{this.status!.textContent='Launching single-player sandbox…';await this.network.startDevSolo(map);this.toggle();}catch(e){this.status!.textContent=(e as Error).message;}});
   for(const action of ['idle','walk','crouch','jump','death'] as ClipAction[]){const button=document.createElement('button');button.textContent=action;button.onclick=()=>this.preview?.actor?.clips.play(action,action!=='death'&&action!=='jump');panel.querySelector('[data-poses]')!.append(button);}
   refresh();
  }
- private toggle(){if(!this.panel)return;this.open=!this.open;this.panel.hidden=!this.open;if(this.open){document.exitPointerLock();void this.ensurePreview();}}
+ private async refreshSandboxMaps(){if(!this.panel)return;const select=this.panel.querySelector('[data-sandbox-map]') as HTMLSelectElement;select.disabled=true;select.innerHTML='<option>Loading installed maps…</option>';try{const maps=await this.network.refreshMaps();select.innerHTML=maps.length?maps.map(map=>`<option value="${map.id}">${map.name}</option>`).join(''):'<option value="">No installed maps found</option>';select.disabled=!maps.length;}catch(e){select.innerHTML='<option value="">Map list unavailable</option>';this.status!.textContent=(e as Error).message;} }
+ private toggle(){if(!this.panel)return;this.open=!this.open;this.panel.hidden=!this.open;if(this.open){document.exitPointerLock();void this.refreshSandboxMaps();void this.ensurePreview();}}
  private async ensurePreview(){
   if(this.preview){this.preview.engine.resize();return;}
   const canvas=this.panel!.querySelector('canvas')!,engine=new Engine(canvas,true),scene=new Scene(engine);scene.clearColor=new Color4(.055,.065,.075,1);

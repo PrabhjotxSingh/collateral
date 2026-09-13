@@ -53,6 +53,15 @@ try {
   const again=await client.create('tactical',{name:'Back again',token:backUser.token});matches.push(again);
   console.log('PASS: leaving a lobby keeps the menu identity and permits another lobby without re-entering callsign.');
 
+  const sandboxUser=await identity(`Sandbox_${suffix}`),sandbox=await client.create('tactical',{name:'Dev sandbox',token:sandboxUser.token,devSolo:true,mapId:'depot'});matches.push(sandbox);
+  for(const event of ['shot','step','reload'])sandbox.onMessage(event,()=>{});
+  await until(()=>sandbox.state?.phase==='live','single-player sandbox starts');
+  assert.equal(sandbox.state.mapId,'depot');assert.equal(sandbox.state.remaining,0);assert.match(sandbox.state.reason,/UNLIMITED TIME/);
+  const sandboxPlayer=sandbox.state.players.get(sandbox.sessionId),sandboxStart=sandboxPlayer.z;
+  for(let i=0;i<10;i++){sandbox.send('input',{seq:i+1,forward:1,strafe:0,yaw:0,pitch:0,jump:false,crouch:false,ads:false,sprint:false});await pause(35);}
+  assert.ok(sandboxPlayer.z>sandboxStart,'sandbox uses authoritative movement');
+  console.log('PASS: development sandbox launches a selected map with one player and unlimited time.');
+
   if(process.env.TEST_COMBAT==='1'){
     await pause(6500);await until(()=>lobby.state.phase==='live','prep becomes live');
     const me=lobby.state.players.get(lobby.sessionId);const startZ=me.z;

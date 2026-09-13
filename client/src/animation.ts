@@ -13,13 +13,14 @@ export function findClip(groups:AnimationGroup[],action:ClipAction){
 
 export class ClipPlayer {
   private current?:AnimationGroup;private previous?:AnimationGroup;private blend=1;private blendDuration=.12;
-  constructor(readonly groups:AnimationGroup[]){for(const group of groups){group.stop();for(const animation of group.targetedAnimations)animation.animation.enableBlending=false;}}
+  constructor(readonly groups:AnimationGroup[],private mapping:Partial<Record<ClipAction,string>>={}){for(const group of groups){group.stop();for(const animation of group.targetedAnimations)animation.animation.enableBlending=false;}}
+  private clip(action:ClipAction){const exact=this.mapping[action];return exact?this.groups.find(group=>group.name===exact):findClip(this.groups,action);}
   phase(value:number){if(this.current){this.current.pause();this.current.goToFrame(this.current.from+(this.current.to-this.current.from)*value);}}
-  has(action:ClipAction){return !!findClip(this.groups,action);}
+  has(action:ClipAction){return !!this.clip(action);}
   stop(){this.current?.stop();this.previous?.stop();this.current=undefined;this.previous=undefined;}
   speed(ratio:number){if(this.current)this.current.speedRatio=Math.max(0.3,Math.min(2.6,ratio));}
   play(action:ClipAction,loop=true,duration?:number){
-    const clip=findClip(this.groups,action);if(!clip)return false;
+    const clip=this.clip(action);if(!clip)return false;
     if(this.current===clip){if(loop)return true;clip.stop();this.current=undefined;}
     this.previous?.stop();this.previous=this.current;this.current=clip;this.blend=0;this.blendDuration=action==='fire'?.025:.12;
     const fps=clip.targetedAnimations[0]?.animation.framePerSecond??60;

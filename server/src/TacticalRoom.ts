@@ -18,6 +18,7 @@ export class TacticalRoom extends Room<GameState> {
   maxMessagesPerSecond = 100;
   private salt = randomBytes(16);
   private passwordHash?: Buffer;
+  protected devSolo = false;
   private released = (identity: Session) => {
     for (const [id, s] of this.identities)
       if (s === identity) {
@@ -46,8 +47,14 @@ export class TacticalRoom extends Room<GameState> {
     )
       throw new ServerError(400, "Password must be at most 64 characters.");
     this.setState(new GameState());
+    this.devSolo = options.devSolo === true && process.env.NODE_ENV !== "production";
     sessionEvents.on("released", this.released);
     this.state.lobbyName = options.name.trim();
+    if (this.devSolo) {
+      if (typeof options.mapId !== "string" || !MAPS.some((map) => map.id === options.mapId))
+        throw new ServerError(400, "Choose an installed map.");
+      this.state.mapChoice = options.mapId;
+    }
     this.setPatchRate(1000 / RULES.patchRate);
     if (options.password)
       this.passwordHash = (await hash(
@@ -109,6 +116,7 @@ export class TacticalRoom extends Room<GameState> {
     this.state.players.set(p.id, p);
     if (!this.state.hostId) this.state.hostId = p.id;
     this.updateListing();
+    if (this.devSolo) this.startMatch(client);
   }
   protected guard(client: Client, fn: () => void) {
     try {
@@ -138,7 +146,7 @@ export class TacticalRoom extends Room<GameState> {
     )
       throw new Error("Only the host can start a waiting lobby.");
     const players = [...this.state.players.values()];
-    if (!canStartMatch(players))
+    if (!this.devSolo && !canStartMatch(players))
       throw new Error(
         "One or two connected players on each team are required.",
       );
@@ -227,7 +235,7 @@ export class TacticalRoom extends Room<GameState> {
     const s = this.state;
     publishLobby(
       this.roomId,
-      s.phase === "waiting"
+      !this.devSolo && s.phase === "waiting"
         ? {
             roomId: this.roomId,
             name: s.lobbyName,
