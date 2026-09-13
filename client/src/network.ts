@@ -56,8 +56,22 @@ export class Network extends EventTarget {
     }
     if(this.match!==room)return;await this.leave();this.emit('error','Could not reconnect to the match.');
   }
-  send(type:'team'|'start'|'round-limit'|'map-selection'|'back-lobby'|'input'|'fire'|'reload',value?:unknown){this.match?.send(type,value);}
-  async ensureMap(id:string){if(MAPS.some(map=>map.id===id&&map.asset.startsWith('/maps/')))return;const response=await fetch(`/api/maps/${encodeURIComponent(id)}`);if(!response.ok)throw new Error('The selected map could not be loaded.');const map=await response.json() as GameMap;installMaps([...MAPS.filter(m=>m.id!==map.id),map]);}
+  send(type:'team'|'start'|'round-limit'|'map-selection'|'back-lobby'|'input'|'fire'|'reload'|'ready',value?:unknown){this.match?.send(type,value);}
+  async ensureMap(id:string,onProgress?:(fraction:number)=>void){
+    if(MAPS.some(map=>map.id===id&&map.asset.startsWith('/maps/')))return;
+    const response=await fetch(`/api/maps/${encodeURIComponent(id)}`);
+    if(!response.ok)throw new Error('The selected map could not be loaded.');
+    const total=Number(response.headers.get('content-length'))||0;
+    let text:string;
+    if(!response.body||!total){onProgress?.(1);text=await response.text();}
+    else{
+      const reader=response.body.getReader(),chunks:Uint8Array[]=[];let received=0;
+      for(;;){const {done,value}=await reader.read();if(done)break;chunks.push(value);received+=value.length;onProgress?.(Math.min(1,received/total));}
+      const bytes=new Uint8Array(received);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+      text=new TextDecoder().decode(bytes);
+    }
+    const map=JSON.parse(text) as GameMap;installMaps([...MAPS.filter(m=>m.id!==map.id),map]);
+  }
   async leaveMatch(){
     const room=this.match;if(room)this.intentional.add(room);
     this.match=undefined;this.state=undefined;sessionStorage.removeItem('collateral.match');

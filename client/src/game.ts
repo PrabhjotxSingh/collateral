@@ -15,6 +15,7 @@ import {ViewmodelMotion} from './viewmodel';
 import {CosmeticPhysics} from './physics';
 import {ShotEffects} from './shot-effects';
 import {ShotPrediction} from './shot-prediction';
+import {setLoading,paint} from './loading-screen';
 export class Game {
   readonly engine:Engine;readonly scene:Scene;readonly camera:UniversalCamera;
   private shadows:ShadowGenerator;
@@ -55,6 +56,7 @@ export class Game {
     this.engine.runRenderLoop(()=>{this.frame(Math.min(this.engine.getDeltaTime()/1000,0.05));this.scene.render();});
   }
   get locked(){return document.pointerLockElement===this.canvas;}
+  get loadedMapId(){return this.mapId;}
   enter(){void this.audio.unlock();void this.canvas.requestPointerLock();}
   private held(action:Action){return this.keys.has(this.settings.keys[action]);}
   private press(key:string){if(this.drawElapsed<DRAW_SECONDS)return;if(key===this.settings.keys.fire){this.cancelSprint=true;this.fireRequested=true;this.tryFire();}if(key===this.settings.keys.reload){this.fireRequested=false;this.network.send('reload');}}
@@ -72,31 +74,42 @@ export class Game {
   }
   private beginDraw(){this.prediction.reset();this.fireRequested=false;this.motion.reset();this.cancelSprint=false;this.drawElapsed=0;this.bakedDraw=this.weapon?.clips.play('draw',false,DRAW_SECONDS)??false;}
   private material(name:string,color:Color3){const m=new StandardMaterial(name,this.scene);m.diffuseColor=color;m.specularColor=new Color3(0.08,0.08,0.08);return m;}
-  private loadMap(id:string){
-    document.body.classList.add('map-loading');const label=document.querySelector('#loading-label');if(label)label.textContent='PREPARING MAP';
+  private async loadMap(id:string){
+    // mapId is committed synchronously, before any await, so a re-entrant
+    // update() during this async load can never start a second loadMap for it.
     this.mapId=id;this.mapModel?.dispose();for(const mesh of this.environment)mesh.dispose();this.environment=[];for(const light of this.mapLights)light.dispose();this.mapLights=[];
+    setLoading(true,'PREPARING MAP',4);await paint();
     const map=mapById(id);
     this.applySkybox(map.skybox?.preset??'blue-day',map.skybox?.asset);
     if(map.triangles){
       // The same baked surface used by the server also supplies a safe fallback
       // and Havok casing collision; no obsolete greybox walls remain.
+      setLoading(true,'BAKING COLLISION MESH',15,`${map.triangles.length.toLocaleString()} triangles`);await paint();
       const mesh=new Mesh('map-collision-surface',this.scene),data=new VertexData();
       data.positions=map.triangles.flat();data.indices=Array.from({length:data.positions.length/3},(_,i)=>i);const normals:number[]=[];VertexData.ComputeNormals(data.positions,data.indices,normals);data.normals=normals;data.applyToMesh(mesh);
       const mat=this.material('map-fallback',new Color3(.3,.32,.34));mat.backFaceCulling=false;mesh.material=mat;this.environment.push(mesh);
-      void this.physics.setMap([mesh],true);
+      setLoading(true,'PREPARING PHYSICS',55);await paint();
+      await this.physics.setMap([mesh],true);
     }else{
       for(const [i,w]of map.walls.entries()){const mesh=MeshBuilder.CreateBox(`cover-${i}`,{width:w.w,height:w.h,depth:w.d},this.scene);mesh.position.set(w.x,w.y,w.z);this.environment.push(mesh);}
       void this.physics.setMap(this.environment);
     }
     const root=this.mapModel=new TransformNode('map-model',this.scene);root.position.y=map.offsetY??0;root.scaling.setAll(map.scale??1);const placeholders=[...this.environment];
     for(const source of map.lights??[]){const light=new PointLight(`map-light-${source.id}`,new Vector3(source.x,source.y,source.z),this.scene);light.diffuse=Color3.FromHexString(source.color);light.intensity=source.intensity;light.range=source.range;this.mapLights.push(light);}
-    void this.assets.instance(map.asset,root).then(async loaded=>{
+    setLoading(true,'LOADING ENVIRONMENT',75);await paint();
+    try{
+      const loaded=await this.assets.instance(map.asset,root);
       await this.effects.ready.catch(()=>{});
       if(loaded){
         for(const mesh of placeholders)if(!mesh.isDisposed())mesh.isVisible=false;
         for(const mesh of root.getChildMeshes()){mesh.receiveShadows=true;this.shadows.addShadowCaster(mesh,false);mesh.onDisposeObservable.addOnce(()=>this.shadows.removeShadowCaster(mesh,false));}
       }
-    }).finally(()=>{document.body.classList.remove('map-loading');if(label)label.textContent='INITIALIZING COLLATERAL';});
+    }finally{
+      setLoading(false);
+      // Tells the server this client is done — the host's signal releases the
+      // prep-round countdown, which is held until then so nobody starts blind.
+      this.network.send('ready');
+    }
   }
   private applySkybox(preset:'blue-day'|'overcast'|'night'|'custom',asset?:string){
     this.customSky?.dispose();this.customSky=undefined;this.customEnvironment?.dispose();this.customEnvironment=undefined;this.scene.environmentTexture=this.defaultEnvironment??null;this.sky.setEnabled(true);
@@ -107,7 +120,7 @@ export class Game {
   update(state:GameView){
     this.state=state;this.active=!['waiting','finished','abandoned'].includes(state.phase);
     if(state.phase==='waiting'){this.lastRound=0;for(const mesh of this.players.values())mesh.setEnabled(false);for(const tag of this.nameTags.values())tag.hidden=true;return;}
-    const mapChanged=this.mapId!==state.mapId;if(mapChanged)this.loadMap(state.mapId);
+    const mapChanged=this.mapId!==state.mapId;if(mapChanged)void this.loadMap(state.mapId);
     const me=state.players[this.network.match?.sessionId??''];
     if(me&&state.round!==this.lastRound){this.lastRound=state.round;this.yaw=me.yaw;this.pitch=0;this.seq=Math.max(this.seq,me.ack);this.kick=0;this.reloadWasActive=false;this.shotAnimRemaining=0;this.beginDraw();this.actorPhases.clear();this.actorReloading.clear();this.actorDead.clear();for(const actor of this.actorAssets.values()){actor.clips.play('idle');actor.combat?.stop();}this.camera.position.set(me.x,me.y+RULES.eyeHeight,me.z);}
     for(const p of Object.values(state.players)){

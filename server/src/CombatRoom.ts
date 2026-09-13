@@ -12,6 +12,10 @@ export class CombatRoom extends TacticalRoom {
   private runtime=new Map<string,Runtime>();
   private roundDamage=new Map<string,{damage:number;hits:number}>();
   private simTime=0;private accumulator=0;private deadline=0;
+  // Large custom maps can take a while to download and bake client-side; the
+  // prep countdown is held until the host confirms it has loaded, so nobody
+  // burns round time (or worse, the whole prep phase) staring at a loading bar.
+  private hostReady=false;private hostWait=0;
   async onCreate(options:any){
     await super.onCreate(options);
     this.onMessage('input',(client,input)=>{
@@ -19,6 +23,7 @@ export class CombatRoom extends TacticalRoom {
       if(!rt||!p||!validInput(input)||input.seq<=rt.input.seq)return;
       rt.input=input;rt.received=this.simTime;p.yaw=input.yaw;p.pitch=input.pitch;
     });
+    this.onMessage('ready',client=>{if(client.sessionId===this.state.hostId)this.hostReady=true;});
     this.onMessage('fire',(client,request)=>{if(request!==undefined&&(!Number.isSafeInteger(request?.shotId)||request.shotId<0||!Number.isFinite(request.yaw)||!Number.isFinite(request.pitch)||Math.abs(request.pitch)>1.6||Math.abs(request.yaw)>Math.PI*4))return;this.fire(client,request);});
     this.onMessage('reload',client=>{
       const p=this.state.players.get(client.sessionId),rt=this.runtime.get(client.sessionId);
@@ -29,7 +34,7 @@ export class CombatRoom extends TacticalRoom {
       while(this.accumulator>=1/RULES.tickRate){this.tick(1/RULES.tickRate);this.accumulator-=1/RULES.tickRate;}
     },1000/RULES.tickRate);
   }
-  protected startMatch(client:Client){super.startMatch(client);this.prepRound();}
+  protected startMatch(client:Client){this.hostReady=false;this.hostWait=0;super.startMatch(client);this.prepRound();}
   private prepRound(){
     const s=this.state,map=mapById(s.mapId);this.roundDamage.clear();s.phase='prep';s.remaining=RULES.prepSeconds;s.winner='';s.reason='';this.deadline=this.simTime+RULES.prepSeconds;
     const count={A:0,B:0};
@@ -48,6 +53,10 @@ export class CombatRoom extends TacticalRoom {
       this.deadline+=dt;s.remaining=Math.max(0,this.deadline-this.simTime);s.reason='Waiting for a player to reconnect…';return;
     }
     if(s.reason==='Waiting for a player to reconnect…')s.reason='';
+    if(s.phase==='prep'&&!this.hostReady&&(this.hostWait+=dt)<=RULES.hostLoadTimeoutSeconds){
+      this.deadline+=dt;s.remaining=Math.max(0,this.deadline-this.simTime);s.reason='Waiting for the host to finish loading the map…';return;
+    }
+    if(s.reason==='Waiting for the host to finish loading the map…')s.reason='';
     s.remaining=Math.max(0,this.deadline-this.simTime);
     if(s.phase==='prep'){
       if(s.remaining<=0){s.phase='live';this.deadline=this.simTime+RULES.roundSeconds;s.remaining=RULES.roundSeconds;}

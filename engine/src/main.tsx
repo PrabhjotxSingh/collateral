@@ -14,12 +14,16 @@ import {
   SceneLoader,
   StandardMaterial,
   TransformNode,
+  UniversalCamera,
   Vector3,
   VertexBuffer,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import JSZip from "jszip";
-import type { MapLight, MapSkybox, Spawn } from "../../shared/maps";
+import type { GameMap, MapLight, MapSkybox, Spawn } from "../../shared/maps";
+import { makeBody, moveBody, type Body } from "../../shared/simulation";
+import { RULES } from "../../shared/rules";
+import type { Input } from "../../shared/protocol";
 import "./style.css";
 type Team = "A" | "B";
 type SpawnMarker = Spawn & { id: string; team: Team };
@@ -67,6 +71,19 @@ function App() {
     spawnNodes = useRef(new Map<string, TransformNode>()),
     lightNodes = useRef(new Map<string, TransformNode>()),
     ambient = useRef<HemisphericLight | undefined>(undefined);
+  const arcCamera = useRef<ArcRotateCamera | undefined>(undefined),
+    testCamera = useRef<UniversalCamera | undefined>(undefined);
+  const [testPicker, setTestPicker] = useState(false),
+    [testActive, setTestActive] = useState(false);
+  const testActiveRef = useRef(testActive);
+  testActiveRef.current = testActive;
+  const playerBody = useRef<Body | undefined>(undefined),
+    testMap = useRef<GameMap | undefined>(undefined),
+    testKeys = useRef(new Set<string>()),
+    testYaw = useRef(0),
+    testPitch = useRef(0),
+    testSeq = useRef(0);
+  const testTickRef = useRef(() => {});
   const [name, setName] = useState("New map"),
     [id, setId] = useState("new-map"),
     [scale, setScale] = useState(1),
@@ -136,14 +153,14 @@ function App() {
     const engine = new Engine(canvas.current!, true),
       s = (scene.current = new Scene(engine));
     s.clearColor = skyColors["blue-day"].clear;
-    const camera = new ArcRotateCamera(
+    const camera = (arcCamera.current = new ArcRotateCamera(
       "camera",
       -Math.PI / 2,
       1.05,
       18,
       new Vector3(0, 1, 0),
       s,
-    );
+    ));
     camera.attachControl(canvas.current!, true);
     camera.wheelPrecision = 35;
     camera.minZ = 0.03;
@@ -178,18 +195,57 @@ function App() {
     manager.usePointerToAttachGizmos = false;
     manager.attachToNode(capsule);
     s.onPointerDown = (_event, pick) => {
+      if (testActiveRef.current) return;
       const entity = pick.pickedMesh?.metadata?.editor as Selected | undefined;
       if (entity) setSelected(entity);
     };
-    const commit = () => commitSelected();
+    const commit = () => {
+      if (!testActiveRef.current) commitSelected();
+    };
     window.addEventListener("pointerup", commit);
     const resize = () => engine.resize();
     window.addEventListener("resize", resize);
+    s.onBeforeRenderObservable.add(() => testTickRef.current());
     engine.runRenderLoop(() => s.render());
     return () => {
       window.removeEventListener("pointerup", commit);
       window.removeEventListener("resize", resize);
       engine.dispose();
+    };
+  }, []);
+  useEffect(() => {
+    const onLockChange = () => {
+      if (!document.pointerLockElement && testActiveRef.current) exitTest();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!testActiveRef.current || document.pointerLockElement !== canvas.current)
+        return;
+      e.preventDefault();
+      testKeys.current.add(e.code);
+    };
+    const onKeyUp = (e: KeyboardEvent) => testKeys.current.delete(e.code);
+    const onBlur = () => testKeys.current.clear();
+    const onMouseMove = (e: MouseEvent) => {
+      if (!testActiveRef.current || document.pointerLockElement !== canvas.current)
+        return;
+      const factor = 0.002;
+      testYaw.current = (testYaw.current + e.movementX * factor) % (Math.PI * 2);
+      testPitch.current = Math.max(
+        -1.5,
+        Math.min(1.5, testPitch.current + e.movementY * factor),
+      );
+    };
+    document.addEventListener("pointerlockchange", onLockChange);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("mousemove", onMouseMove);
+    return () => {
+      document.removeEventListener("pointerlockchange", onLockChange);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("mousemove", onMouseMove);
     };
   }, []);
   useEffect(() => {
@@ -298,6 +354,39 @@ function App() {
       `Loaded ${meshes.current.length} meshes. Add an object, select it, then drag its axis gizmo.`,
     );
   }
+  async function importProject(file: File) {
+    try {
+      setStatus("Reading map package...");
+      const zip = await JSZip.loadAsync(file);
+      const [projectEntry] = zip.file(/project\.json$/i);
+      const [glbEntry] = zip.file(/map\.glb$/i);
+      if (!projectEntry || !glbEntry)
+        throw new Error(
+          "This zip has no project.json + map.glb — export it from this engine first.",
+        );
+      const project = JSON.parse(await projectEntry.async("string"));
+      const glbBuffer = await glbEntry.async("arraybuffer");
+      await load(
+        new File([glbBuffer], "map.glb", { type: "model/gltf-binary" }),
+      );
+      setName(typeof project.name === "string" ? project.name : name);
+      setId(cleanId(typeof project.id === "string" ? project.id : id));
+      setScale(typeof project.scale === "number" ? project.scale : 1);
+      setOffsetY(typeof project.offsetY === "number" ? project.offsetY : 0);
+      setSpawns(Array.isArray(project.spawns) ? project.spawns : []);
+      setLights(Array.isArray(project.lights) ? project.lights : []);
+      setSky(
+        project.sky && typeof project.sky.preset === "string"
+          ? project.sky
+          : { preset: "blue-day" },
+      );
+      const [skyEntry] = zip.file(/skybox\.env$/i);
+      skyFile.current = skyEntry ? await skyEntry.async("arraybuffer") : undefined;
+      setStatus(`Reopened "${project.name ?? "map"}" for editing.`);
+    } catch (error) {
+      setStatus((error as Error).message);
+    }
+  }
   function addSpawn(team: Team) {
     if (spawns.filter((s) => s.team === team).length >= 2)
       return setStatus(`Team ${team} already has two spawns.`);
@@ -318,6 +407,89 @@ function App() {
     };
     setLights((v) => [...v, light]);
     setSelected({ kind: "light", id: light.id });
+  }
+  function startTest(spawn: SpawnMarker) {
+    const s = scene.current;
+    if (!s || !canvas.current) return;
+    const baked = bake();
+    if (!baked.triangles.length) {
+      setStatus("No collision geometry to test against. Import a GLB first.");
+      return;
+    }
+    setTestPicker(false);
+    gizmos.current?.attachToNode(null);
+    arcCamera.current?.detachControl();
+    testMap.current = {
+      id: "editor-test",
+      name: "editor-test",
+      asset: "",
+      walls: [],
+      triangles: baked.triangles,
+      spawns: { A: [], B: [] },
+    };
+    const body = (playerBody.current = makeBody(spawn.x, spawn.z));
+    body.y = spawn.y ?? 0;
+    testYaw.current = spawn.yaw;
+    testPitch.current = 0;
+    testSeq.current = 0;
+    testKeys.current.clear();
+    const cam = (testCamera.current = new UniversalCamera(
+      "test-camera",
+      new Vector3(spawn.x, body.y + RULES.eyeHeight, spawn.z),
+      s,
+    ));
+    cam.minZ = 0.05;
+    cam.rotation.set(0, spawn.yaw, 0);
+    s.activeCamera = cam;
+    canvas.current.requestPointerLock?.();
+    setTestActive(true);
+    setStatus(
+      `Testing TEAM ${spawn.team} spawn. WASD to walk, SPACE to jump, C to crouch. Press ESC or EXIT TEST to return.`,
+    );
+  }
+  function testTick() {
+    const s = scene.current,
+      body = playerBody.current,
+      map = testMap.current,
+      cam = testCamera.current;
+    if (!testActiveRef.current || !s || !body || !map || !cam) return;
+    const dt = Math.min(s.getEngine().getDeltaTime() / 1000, 0.05);
+    const keys = testKeys.current;
+    const input: Input = {
+      seq: ++testSeq.current,
+      forward: Number(keys.has("KeyW")) - Number(keys.has("KeyS")),
+      strafe: Number(keys.has("KeyD")) - Number(keys.has("KeyA")),
+      yaw: testYaw.current,
+      pitch: testPitch.current,
+      jump: keys.has("Space"),
+      crouch: keys.has("KeyC"),
+      ads: false,
+      sprint: false,
+    };
+    moveBody(body, input, dt, map);
+    cam.position.set(
+      body.x,
+      body.y + (body.crouch ? RULES.crouchEyeHeight : RULES.eyeHeight),
+      body.z,
+    );
+    cam.rotation.set(testPitch.current, testYaw.current, 0);
+  }
+  testTickRef.current = testTick;
+  function exitTest() {
+    const s = scene.current;
+    if (document.pointerLockElement) document.exitPointerLock();
+    testCamera.current?.dispose();
+    testCamera.current = undefined;
+    playerBody.current = undefined;
+    testMap.current = undefined;
+    testKeys.current.clear();
+    if (s && arcCamera.current) {
+      s.activeCamera = arcCamera.current;
+      arcCamera.current.attachControl(canvas.current!, true);
+    }
+    setTestActive(false);
+    attach();
+    setStatus("Back in edit mode.");
   }
   function bake() {
     const triangles: number[][] = [];
@@ -397,14 +569,25 @@ function App() {
             sky.preset === "custom" ? `/maps/${mapId}/skybox.env` : undefined,
         },
       };
+      const project = {
+        version: 1,
+        name: name.trim(),
+        id: mapId,
+        scale,
+        offsetY,
+        spawns,
+        lights,
+        sky,
+      };
       const zip = new JSZip(),
         folder = zip.folder(mapId)!;
       folder.file("map.glb", source.current);
       folder.file("map.json", JSON.stringify(manifest));
+      folder.file("project.json", JSON.stringify(project));
       if (sky.preset === "custom") folder.file("skybox.env", skyFile.current!);
       folder.file(
         "INSTALL.txt",
-        "Copy this entire folder into client/public/maps, then restart the Collateral server.",
+        "Copy this entire folder into client/public/maps, then restart the Collateral server.\nproject.json is the editable source — reopen it from the map engine's IMPORT MAP button to keep editing this map.",
       );
       const blob = await zip.generateAsync(
         {
@@ -449,6 +632,13 @@ function App() {
           <h1>MAP ENGINE</h1>
           <small>PACKAGE FORMAT V1</small>
         </div>
+        <button
+          className="test"
+          onClick={() => setTestPicker(true)}
+          disabled={!spawns.length}
+        >
+          TEST SPAWN
+        </button>
         <button className="export" onClick={exportMap}>
           EXPORT MAP PACKAGE
         </button>
@@ -464,6 +654,18 @@ function App() {
               onChange={(e) =>
                 e.target.files?.[0] && void load(e.target.files[0])
               }
+            />
+          </label>
+          <label>
+            Reopen exported map package (.zip)
+            <input
+              type="file"
+              accept=".zip"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importProject(file);
+                e.target.value = "";
+              }}
             />
           </label>
           <label>
@@ -628,10 +830,19 @@ function App() {
       </aside>
       <main>
         <canvas ref={canvas} />
-        <div className="help">
-          LEFT DRAG · ORBIT &nbsp; RIGHT DRAG · PAN &nbsp; WHEEL · ZOOM &nbsp;
-          CLICK MARKER · SELECT
-        </div>
+        {testActive ? (
+          <>
+            <div className="crosshair" />
+            <button className="exit-test" onClick={exitTest}>
+              EXIT TEST (ESC)
+            </button>
+          </>
+        ) : (
+          <div className="help">
+            LEFT DRAG · ORBIT &nbsp; RIGHT DRAG · PAN &nbsp; WHEEL · ZOOM &nbsp;
+            CLICK MARKER · SELECT
+          </div>
+        )}
       </main>
       {exporting && (
         <div className="modal">
@@ -640,6 +851,36 @@ function App() {
             <p>{exporting.stage}</p>
             <progress max="100" value={exporting.progress} />
             <strong>{Math.round(exporting.progress)}%</strong>
+          </div>
+        </div>
+      )}
+      {testPicker && (
+        <div className="modal" onClick={() => setTestPicker(false)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <h2>TEST SPAWN</h2>
+            <p>Pick a placed spawn point to drop into a first-person camera.</p>
+            <div className="spawn-list">
+              {(["A", "B"] as const).map((team) => (
+                <div key={team} className="spawn-list-team">
+                  <h3>TEAM {team}</h3>
+                  {spawns.filter((s) => s.team === team).length === 0 && (
+                    <p>No spawns placed.</p>
+                  )}
+                  {spawns
+                    .filter((s) => s.team === team)
+                    .map((s, i) => (
+                      <button key={s.id} onClick={() => startTest(s)}>
+                        SPAWN {i + 1}
+                        <small>
+                          {s.x.toFixed(2)}, {Number(s.y ?? 0).toFixed(2)},{" "}
+                          {s.z.toFixed(2)}
+                        </small>
+                      </button>
+                    ))}
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setTestPicker(false)}>CANCEL</button>
           </div>
         </div>
       )}

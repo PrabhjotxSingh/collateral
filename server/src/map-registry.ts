@@ -9,7 +9,7 @@ export function validateMap(value:unknown,idFromFolder?:string):GameMap{
   if(typeof m.name!=='string'||!m.name.trim()||m.name.length>60)throw new Error(`Invalid name for ${id}`);
   if(!m.spawns||!Array.isArray(m.spawns.A)||!Array.isArray(m.spawns.B)||m.spawns.A.length<2||m.spawns.B.length<2)throw new Error(`${id} needs two spawns per team`);
   for(const spawn of [...m.spawns.A,...m.spawns.B])if(!finite(spawn.x)||!finite(spawn.y??0)||!finite(spawn.z)||!finite(spawn.yaw))throw new Error(`Invalid spawn in ${id}`);
-  if(!Array.isArray(m.triangles)||!m.triangles.length||m.triangles.length>500_000||m.triangles.some(t=>!Array.isArray(t)||t.length!==9||t.some(n=>!finite(n))))throw new Error(`${id} needs valid baked collision triangles`);
+  if(!Array.isArray(m.triangles)||!m.triangles.length||m.triangles.length>2_000_000||m.triangles.some(t=>!Array.isArray(t)||t.length!==9||t.some(n=>!finite(n))))throw new Error(`${id} needs valid baked collision triangles`);
   const lights=Array.isArray(m.lights)?m.lights:[];
   if(lights.length>128||lights.some(l=>l.type!=='point'||![l.x,l.y,l.z,l.intensity,l.range].every(finite)||typeof l.color!=='string'))throw new Error(`Invalid lights in ${id}`);
   const preset=m.skybox?.preset??'blue-day';if(!['blue-day','overcast','night','custom'].includes(preset))throw new Error(`Invalid skybox in ${id}`);
