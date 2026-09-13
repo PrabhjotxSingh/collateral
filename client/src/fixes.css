@@ -1,0 +1,65 @@
+/* Small layout and feedback refinements kept separate from the legacy compact stylesheet. */
+.round-choice {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+  gap: 12px;
+}
+.round-choice > label,
+.round-choice > strong,
+.round-choice > button {
+  display: block;
+  width: 100%;
+  margin: 0;
+}
+.round-choice > button {
+  text-align: left;
+}
+.hit .crosshair::before,
+.hit .crosshair::after,
+.headshot .crosshair::before,
+.headshot .crosshair::after,
+.kill .crosshair::before,
+.kill .crosshair::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 13px;
+  height: 2px;
+  background: #f4f1e8;
+  box-shadow: 0 1px 3px #000;
+  animation: confirmed-hit 0.3s ease-out both;
+}
+.hit .crosshair::before,
+.headshot .crosshair::before,
+.kill .crosshair::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.hit .crosshair::after,
+.headshot .crosshair::after,
+.kill .crosshair::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+.headshot .crosshair::before,
+.headshot .crosshair::after {
+  background: #f0bd62;
+}
+.kill .crosshair::before,
+.kill .crosshair::after {
+  background: #e9584f;
+}
+@keyframes confirmed-hit {
+  0% {
+    opacity: 0;
+    scale: 0.55;
+  }
+  25% {
+    opacity: 1;
+    scale: 1.2;
+  }
+  100% {
+    opacity: 0;
+    scale: 1;
+  }
+}

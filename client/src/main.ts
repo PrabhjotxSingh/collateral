@@ -6,6 +6,7 @@ import {MenuScene} from './menu-scene';
 import {MenuMusic} from './menu-music';
 import './style.css';
 import './menu.css';
+import './fixes.css';
 const net=new Network(),settings=loadSettings();
 const music=new MenuMusic(()=>settings);
 let game:Game|undefined;

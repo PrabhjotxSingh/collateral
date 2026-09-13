@@ -106,8 +106,8 @@ export class Game {
   }
   update(state:GameView){
     this.state=state;this.active=!['waiting','finished','abandoned'].includes(state.phase);
-    if(state.phase==='waiting')return;
-    if(this.mapId!==state.mapId)this.loadMap(state.mapId);
+    if(state.phase==='waiting'){this.lastRound=0;for(const mesh of this.players.values())mesh.setEnabled(false);for(const tag of this.nameTags.values())tag.hidden=true;return;}
+    const mapChanged=this.mapId!==state.mapId;if(mapChanged)this.loadMap(state.mapId);
     const me=state.players[this.network.match?.sessionId??''];
     if(me&&state.round!==this.lastRound){this.lastRound=state.round;this.yaw=me.yaw;this.pitch=0;this.seq=Math.max(this.seq,me.ack);this.kick=0;this.reloadWasActive=false;this.shotAnimRemaining=0;this.beginDraw();this.actorPhases.clear();this.actorReloading.clear();this.actorDead.clear();for(const actor of this.actorAssets.values()){actor.clips.play('idle');actor.combat?.stop();}this.camera.position.set(me.x,me.y+RULES.eyeHeight,me.z);}
     for(const p of Object.values(state.players)){
@@ -126,6 +126,7 @@ export class Game {
           }
         });
       }
+      if(mapChanged){const mesh=this.players.get(p.id)!;mesh.position.set(p.x,p.y+RULES.height/2,p.z);mesh.rotation.y=p.yaw;mesh.setEnabled(false);}
     }
   }
   private frame(dt:number){
@@ -193,7 +194,7 @@ export class Game {
     if(!this.active)return;
     const local=shot.id===this.network.match?.sessionId,origin=new Vector3(shot.x,shot.y,shot.z),direction=new Vector3(shot.dx,shot.dy,shot.dz),end=origin.add(direction.scale(shot.distance));
     const actor=this.actorAssets.get(shot.id),muzzle=local?this.weapon?.muzzle:actor?.muzzle;
-    if(local){if(!this.prediction.acknowledge(shot.shotId))this.localShot();if(shot.hit)window.dispatchEvent(new CustomEvent('game-hit',{detail:{headshot:shot.headshot,killed:!!shot.killed}}));}
+    if(local){if(!this.prediction.acknowledge(shot.shotId))this.localShot();if(shot.hit){this.audio.play('hit');window.dispatchEvent(new CustomEvent('game-hit',{detail:{headshot:shot.headshot,killed:!!shot.killed}}));}}
     else{this.audio.play('shot',shot);this.effects.muzzle(muzzle,origin);actor?.combat?.play('fire',false,RULES.shotSeconds);}
     const me=this.state?.players[this.network.match?.sessionId??''];if(!local&&me&&shot.targetId===me.id){const bearing=Math.atan2(shot.x-me.x,shot.z-me.z)-this.yaw;this.damageShake=1;window.dispatchEvent(new CustomEvent('game-damage',{detail:bearing*180/Math.PI}));}
     muzzle?.computeWorldMatrix(true);const start=muzzle?.getAbsolutePosition().clone()??origin;

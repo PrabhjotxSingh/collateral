@@ -10,4 +10,4 @@ export interface GameMap {version?:1;id:string;name:string;asset:string;walls:Bo
 export const MAPS:GameMap[]=[{version:1,id:'depot',name:'Depot — Neon Arena',asset:'/assets/maps/depot.glb',walls:[],triangles:DEPOT_TRIANGLES,offsetY:DEPOT_OFFSET_Y,scale:1,bounds:{minX:-23.007,maxX:23.007,minZ:-11.079,maxZ:11.079},spawns:{A:[{x:-19,y:0,z:-7,yaw:Math.PI/2},{x:-19,y:0,z:7,yaw:Math.PI/2}],B:[{x:19,y:0,z:7,yaw:-Math.PI/2},{x:19,y:0,z:-7,yaw:-Math.PI/2}]},lights:[],skybox:{preset:'blue-day'}}];
 export function installMaps(maps:GameMap[]){if(!maps.length)return;MAPS.splice(0,MAPS.length,...maps);}
 export const mapById=(id:string)=>MAPS.find(m=>m.id===id)??MAPS[0];
-export const ASSETS={glock:'/assets/weapons/glock.glb',player:'/assets/characters/player.glb',shot:'/assets/sounds/glock-shot.ogg',step:'/assets/sounds/footstep.ogg',reload:'/assets/sounds/reload.ogg'};
+export const ASSETS={glock:'/assets/weapons/glock.glb',player:'/assets/characters/player.glb',shot:'/assets/sounds/glock-shot.ogg',hit:'/assets/sounds/hitmarker.mp3',step:'/assets/sounds/footstep.ogg',reload:'/assets/sounds/reload.ogg'};
