@@ -21,7 +21,7 @@ test('hitscan respects cover, body damage zone, heads and friendly blockers',()=
 test('symmetric elimination and survivor-count timeouts have no team-role advantage',()=>{
  const a=player('a','A',0,0),b=player('b','B',0,0),c=player('c','A',0,0),d=player('d','B',0,0);
  assert.equal(roundWinner([a,b],1,false),undefined);assert.equal(roundWinner([a,b],1,true),'draw');assert.equal(roundWinner([a,b],5,true),'draw');
- d.health=0;assert.equal(roundWinner([a,b,c,d],1,false),'A');assert.equal(roundWinner([a,b,c,d],1,true),'A');
+ d.health=0;assert.equal(roundWinner([a,b,c,d],1,false),undefined);assert.equal(roundWinner([a,b,c,d],1,true),'A');
  c.health=0;assert.equal(roundWinner([a,b,c,d],1,true),'draw');a.health=0;assert.equal(roundWinner([a,b,c,d],2,false),'B');
  b.health=0;assert.equal(roundWinner([a,b,c,d],2,false),'draw');
 });

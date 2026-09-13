@@ -5,8 +5,6 @@ import { direction,rayBox,type Body,type Vec } from '../../shared/simulation.js'
 import type { GameMap } from '../../shared/maps.js';
 export function roundWinner(players:Iterable<Pick<PlayerState,'team'|'health'|'connected'>>,_round:number,expired:boolean):Team|'draw'|undefined{
   let a=0,b=0,totalA=0,totalB=0;for(const p of players)if(p.connected){if(p.team==='A'){totalA++;if(p.health>0)a++;}else{totalB++;if(p.health>0)b++;}}
-  // Every round is one-life sudden death: the first casualty loses the round.
-  if(a<totalA&&b===totalB)return 'B';if(b<totalB&&a===totalA)return 'A';
   if(a===0&&b===0)return 'draw';
   if(a===0)return 'B';if(b===0)return 'A';if(expired)return a===b?'draw':a>b?'A':'B';
 }
