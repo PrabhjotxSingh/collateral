@@ -57,6 +57,144 @@ body {
   border-color: var(--accent);
   font-weight: 800;
 }
+.home {
+  margin-left: auto;
+}
+.engine-home {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 75% 20%, #1d2b33 0, transparent 35%), #080b0e;
+  color: #edf3f5;
+  padding: 42px 6vw;
+}
+.engine-home header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  letter-spacing: 0.16em;
+}
+.engine-home header b {
+  font-size: 34px;
+  font-style: italic;
+}
+.engine-home header small {
+  color: #77858e;
+  margin-left: auto;
+}
+.engine-home main {
+  position: static;
+  max-width: 1100px;
+  margin: 14vh auto 0;
+}
+.engine-home h1 {
+  font-size: clamp(46px, 7vw, 92px);
+  line-height: 0.9;
+  letter-spacing: -0.055em;
+  margin: 12px 0 55px;
+}
+.kicker {
+  color: var(--accent);
+  letter-spacing: 0.18em;
+}
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.tool-grid button {
+  min-height: 260px;
+  text-align: left;
+  padding: 28px;
+  background: #11171cdd;
+  transition:
+    0.2s transform,
+    0.2s border-color;
+}
+.tool-grid button:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+}
+.tool-grid span,
+.tool-grid i {
+  display: block;
+  font:
+    11px Consolas,
+    monospace;
+  color: var(--accent);
+}
+.tool-grid strong {
+  display: block;
+  font-size: 24px;
+  margin: 45px 0 10px;
+}
+.tool-grid i {
+  margin-top: 28px;
+  font-style: normal;
+}
+.framer .finger-list {
+  max-height: 180px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+}
+.framer .finger-list button {
+  text-align: left;
+  font:
+    10px Consolas,
+    monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.framer .warning {
+  color: #e8a54c;
+}
+.mode-switch {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  background: #070a0ccc;
+  padding: 4px;
+}
+.mode-switch button.selected {
+  background: #183247;
+}
+.preview-controls {
+  position: absolute;
+  right: 18px;
+  bottom: 16px;
+  display: flex;
+  gap: 8px;
+}
+.preview-controls button:first-child {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 800;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.check input {
+  width: auto;
+  margin: 0;
+}
+.framer aside h3 {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #d6a45d;
+  margin: 16px 0 5px;
+}
+@media (max-width: 800px) {
+  .tool-grid {
+    grid-template-columns: 1fr;
+  }
+  .engine-home main {
+    margin-top: 8vh;
+  }
+}
 aside {
   background: var(--panel);
   border-right: 1px solid var(--line);

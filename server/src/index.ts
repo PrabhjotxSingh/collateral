@@ -1,26 +1,53 @@
-import express from 'express';
-import { createServer } from 'node:http';
-import { Server } from '@colyseus/core';
-import { WebSocketTransport } from '@colyseus/ws-transport';
-import { resolve,basename } from 'node:path';
-import { SessionRoom } from './SessionRoom.js';
-import { CombatRoom } from './CombatRoom.js';
-import { sessions } from './sessions.js';
-import {loadInstalledMaps} from './map-registry.js';
-import {MAPS} from '../../shared/maps.js';
-const app=express();
-const projectRoot=resolve(process.cwd(),basename(process.cwd())==='server'?'..':'.');
-loadInstalledMaps(resolve(projectRoot,'client/public/maps'));
-app.get('/api/health',(_req,res)=>res.json({ok:true,game:'Collateral'}));
-app.get('/api/maps',(_req,res)=>res.json(MAPS.map(({id,name})=>({id,name}))));
-app.get('/api/maps/:id',(req,res)=>{const map=MAPS.find(m=>m.id===req.params.id);if(!map)return res.status(404).json({error:'Map not found'});res.json(map);});
+import express from "express";
+import { createServer } from "node:http";
+import { Server } from "@colyseus/core";
+import { WebSocketTransport } from "@colyseus/ws-transport";
+import { resolve, basename } from "node:path";
+import { SessionRoom } from "./SessionRoom.js";
+import { CombatRoom } from "./CombatRoom.js";
+import { sessions } from "./sessions.js";
+import { loadInstalledMaps } from "./map-registry.js";
+import {
+  loadInstalledWeapons,
+  WEAPONS,
+  WEAPON_SUMMARIES,
+} from "./weapon-registry.js";
+import { MAPS } from "../../shared/maps.js";
+const app = express();
+const projectRoot = resolve(
+  process.cwd(),
+  basename(process.cwd()) === "server" ? ".." : ".",
+);
+loadInstalledMaps(resolve(projectRoot, "client/public/maps"));
+loadInstalledWeapons(resolve(projectRoot, "client/public/weapons"));
+app.get("/api/health", (_req, res) =>
+  res.json({ ok: true, game: "Collateral" }),
+);
+app.get("/api/maps", (_req, res) =>
+  res.json(MAPS.map(({ id, name }) => ({ id, name }))),
+);
+app.get("/api/maps/:id", (req, res) => {
+  const map = MAPS.find((m) => m.id === req.params.id);
+  if (!map) return res.status(404).json({ error: "Map not found" });
+  res.json(map);
+});
+app.get("/api/weapons", (_req, res) => res.json(WEAPON_SUMMARIES));
+app.get("/api/weapons/:slot/:id", (req, res) => {
+  const weapon = WEAPONS.get(`${req.params.slot}/${req.params.id}`);
+  if (!weapon) return res.status(404).json({ error: "Weapon not found" });
+  res.json(weapon);
+});
 // A single origin serves both the built client and matchmaking. Use a TLS reverse proxy in production.
-const clientDist=resolve(projectRoot,'client/dist');
-app.use(express.static(process.env.CLIENT_DIST??clientDist));
-const http=createServer(app);
-const server=new Server({transport:new WebSocketTransport({server:http})});
-server.define('session',SessionRoom);server.define('tactical',CombatRoom);
-const sweep=setInterval(()=>sessions.sweep(),1000);sweep.unref();
-const port=Number(process.env.PORT??2567);
-await server.listen(port,'0.0.0.0');
+const clientDist = resolve(projectRoot, "client/dist");
+app.use(express.static(process.env.CLIENT_DIST ?? clientDist));
+const http = createServer(app);
+const server = new Server({
+  transport: new WebSocketTransport({ server: http }),
+});
+server.define("session", SessionRoom);
+server.define("tactical", CombatRoom);
+const sweep = setInterval(() => sessions.sweep(), 1000);
+sweep.unref();
+const port = Number(process.env.PORT ?? 2567);
+await server.listen(port, "0.0.0.0");
 console.log(`Collateral authoritative server listening on ${port}`);

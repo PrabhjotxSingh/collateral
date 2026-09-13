@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "id": "glock",
+  "name": "Glock",
+  "slot": "secondary",
+  "assets": { "view": "view.glb", "world": "world.glb" },
+  "gameplay": {
+    "damage": 34,
+    "headshotMultiplier": 3,
+    "range": 80,
+    "rpm": 480,
+    "magazine": 17,
+    "reserve": 51,
+    "reloadSeconds": 1.7,
+    "spread": {
+      "standing": 0.002,
+      "moving": 0.018,
+      "crouched": 0.0012,
+      "ads": 0.0008
+    },
+    "recoil": { "pitch": 1.25, "yaw": 0.35, "recovery": 12 }
+  },
+  "effects": {
+    "muzzle": {
+      "firstPerson": {
+        "x": 0,
+        "y": 0.059,
+        "z": 0.166,
+        "pitch": 0,
+        "yaw": 0,
+        "roll": 0,
+        "scale": 1
+      },
+      "thirdPerson": {
+        "x": 0,
+        "y": 0.059,
+        "z": 0.166,
+        "pitch": 0,
+        "yaw": 0,
+        "roll": 0,
+        "scale": 1
+      }
+    },
+    "flash": {
+      "color": "#ffd28a",
+      "size": 0.09,
+      "intensity": 2.4,
+      "duration": 0.045
+    },
+    "tracer": {
+      "color": "#ffd7a0",
+      "width": 0.012,
+      "length": 1.4,
+      "speed": 160,
+      "smoke": true
+    }
+  },
+  "firstPerson": {
+    "arms": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "pitch": 0,
+      "yaw": 0,
+      "roll": 0,
+      "scale": 1
+    },
+    "weapon": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "pitch": 0,
+      "yaw": 180,
+      "roll": 0,
+      "scale": 1
+    },
+    "ads": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "pitch": 0,
+      "yaw": 180,
+      "roll": 0,
+      "scale": 1
+    },
+    "adsFov": 0.82,
+    "fingers": {}
+  },
+  "thirdPerson": {
+    "character": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "pitch": 0,
+      "yaw": 0,
+      "roll": 0,
+      "scale": 1
+    },
+    "weapon": {
+      "x": -0.025,
+      "y": 0.037,
+      "z": 0.027,
+      "pitch": 0,
+      "yaw": 0,
+      "roll": 0,
+      "scale": 1
+    },
+    "fingers": {}
+  }
+}

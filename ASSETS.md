@@ -32,6 +32,21 @@ the native ready pose remains during reload. The first-person reload still plays
 
 ## Gun attachment and future weapons
 
+The preferred workflow is now the Character / Weapon Framer. Run `npm run dev:engine`,
+choose that workspace, import separate first-person arms/view-gun files and a third-person
+reference character/world-gun file, then export. The framer discovers real finger bones,
+allows per-joint rotation, and stores both framing transforms and hand poses in `weapon.json`.
+The same manifest defines authoritative ballistics, ammo/reload behavior, recoil/spread,
+hip and ADS framing/FOV, uploaded shot/reload sounds, independent first/third-person
+muzzle sockets, muzzle flash, tracer, and smoke settings. Use Play Test in either camera
+mode to preview the configured firing cadence, sound, flash, and tracer before export.
+
+Install the exported folder under `client/public/weapons/primary/<id>` or
+`client/public/weapons/secondary/<id>`. Restart the server; `/api/weapons` discovers it,
+the loadout displays it, and the game uses the exported view/world assets. Number keys 1/2
+and the mouse wheel change equipped slots with a down/up transition. Models without skinned
+finger bones can still be framed, but cannot be finger-posed.
+
 The SWAT has a right-hand bone but no authored weapon socket. Runtime attachment
 in client/src/assets.ts measures its right wrist and middle-finger knuckle in the
 fitted idle pose, computes a fixed hand-local grip transform, and parents the

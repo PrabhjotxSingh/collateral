@@ -1,4 +1,4 @@
-Collateral Map Engine v1.2
+Collateral Engine v2.0
 
 - Axis and rotation gizmos for the player reference, spawns, and lights
 - Map clicks no longer reposition the reference capsule
@@ -10,3 +10,14 @@ Collateral Map Engine v1.2
 - Per-map transitions clear stale player visuals
 - Dedicated main-menu music volume control
 - Server-confirmed hit marker visual and sound
+- Workspace launcher for the Map Editor and Character / Weapon Framer
+- First-person arms and view-weapon framing
+- Third-person character and world-weapon framing
+- Per-joint finger posing for rigs that expose finger bones
+- Exportable primary/secondary weapon package format
+- Runtime weapon discovery, loadout equipment, and 1/2/scroll switching
+- Authoritative per-weapon damage, RPM, range, ammunition, reload, spread, and recoil
+- Uploaded per-weapon fire/reload sounds
+- Editable hip/ADS framing and ADS FOV
+- First/third-person muzzle sockets, flash, tracer, and smoke controls
+- Continuous first/third-person Play Test preview

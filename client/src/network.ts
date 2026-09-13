@@ -1,87 +1,251 @@
-import { Client, type Room } from 'colyseus.js';
-import type { GameView,Input,Lobby,ShotEvent,DeathRecap,MapSummary } from '../../shared/protocol.js';
-import {MAPS,installMaps,type GameMap} from '../../shared/maps.js';
-const endpoint=import.meta.env.VITE_SERVER_URL??`${location.origin}${import.meta.env.DEV?'/socket':''}`;
+import { Client, type Room } from "colyseus.js";
+import type {
+  GameView,
+  Input,
+  Lobby,
+  ShotEvent,
+  DeathRecap,
+  MapSummary,
+} from "../../shared/protocol.js";
+import { MAPS, installMaps, type GameMap } from "../../shared/maps.js";
+import type { WeaponManifest, WeaponSummary } from "../../shared/weapons.js";
+const endpoint =
+  import.meta.env.VITE_SERVER_URL ??
+  `${location.origin}${import.meta.env.DEV ? "/socket" : ""}`;
 export class Network extends EventTarget {
-  constructor(){super();window.addEventListener('pagehide',()=>{void this.leave();});}
-  private client=new Client(endpoint);identity?:Room;match?:Room;
-  username='';token='';lobbies:Lobby[]=[];maps:MapSummary[]=[];state?:GameView;private intentional=new Set<Room>();
-  private emit(name:string,value?:unknown){this.dispatchEvent(new CustomEvent(name,{detail:value}));}
-  async connect(username:string){
-    if(!this.maps.length){const response=await fetch('/api/maps');if(!response.ok)throw new Error('Could not load installed maps.');this.maps=await response.json() as MapSummary[];}
-    const saved=this.readSaved('collateral.identity');let room:Room;
-    if(saved?.reconnectionToken&&saved.username.toLowerCase()===username.toLowerCase()){
-      try{room=await this.client.reconnect(saved.reconnectionToken);}catch{room=await this.client.create('session',{username,resumeToken:saved.token});}
-    }else room=await this.client.create('session',{username});
-    await this.bindIdentity(room);
-    const old=sessionStorage.getItem('collateral.match');
-    if(old)try{this.bindMatch(await this.client.reconnect(old));}catch{sessionStorage.removeItem('collateral.match');}
-  }
-  private readSaved(key:string){try{return JSON.parse(sessionStorage.getItem(key)??'null');}catch{return null;}}
-  private bindIdentity(room:Room){
-    this.identity=room;
-    return new Promise<void>(resolve=>{
-      room.onMessage('identity',auth=>{this.username=auth.username;this.token=auth.token;sessionStorage.setItem('collateral.identity',JSON.stringify({...auth,reconnectionToken:room.reconnectionToken}));resolve();this.emit('identity');});
-      room.onMessage('lobbies',lobbies=>{this.lobbies=lobbies;this.emit('lobbies');});
-      room.onError((_code,message)=>this.emit('error',message));
-      room.onLeave(code=>{if(!this.intentional.has(room)&&code!==1000)this.recoverIdentity(room);});
+  constructor() {
+    super();
+    window.addEventListener("pagehide", () => {
+      void this.leave();
     });
   }
-  private async recoverIdentity(_room:Room){
+  private client = new Client(endpoint);
+  identity?: Room;
+  match?: Room;
+  username = "";
+  token = "";
+  lobbies: Lobby[] = [];
+  maps: MapSummary[] = [];
+  weapons: WeaponSummary[] = [];
+  state?: GameView;
+  private intentional = new Set<Room>();
+  private weaponCache = new Map<string, WeaponManifest>();
+  private emit(name: string, value?: unknown) {
+    this.dispatchEvent(new CustomEvent(name, { detail: value }));
+  }
+  async connect(username: string) {
+    if (!this.maps.length) {
+      const response = await fetch("/api/maps");
+      if (!response.ok) throw new Error("Could not load installed maps.");
+      this.maps = (await response.json()) as MapSummary[];
+    }
+    if (!this.weapons.length) {
+      const response = await fetch("/api/weapons");
+      if (!response.ok) throw new Error("Could not load installed weapons.");
+      this.weapons = (await response.json()) as WeaponSummary[];
+    }
+    const saved = this.readSaved("collateral.identity");
+    let room: Room;
+    if (
+      saved?.reconnectionToken &&
+      saved.username.toLowerCase() === username.toLowerCase()
+    ) {
+      try {
+        room = await this.client.reconnect(saved.reconnectionToken);
+      } catch {
+        room = await this.client.create("session", {
+          username,
+          resumeToken: saved.token,
+        });
+      }
+    } else room = await this.client.create("session", { username });
+    await this.bindIdentity(room);
+    const old = sessionStorage.getItem("collateral.match");
+    if (old)
+      try {
+        this.bindMatch(await this.client.reconnect(old));
+      } catch {
+        sessionStorage.removeItem("collateral.match");
+      }
+  }
+  private readSaved(key: string) {
+    try {
+      return JSON.parse(sessionStorage.getItem(key) ?? "null");
+    } catch {
+      return null;
+    }
+  }
+  private bindIdentity(room: Room) {
+    this.identity = room;
+    return new Promise<void>((resolve) => {
+      room.onMessage("identity", (auth) => {
+        this.username = auth.username;
+        this.token = auth.token;
+        sessionStorage.setItem(
+          "collateral.identity",
+          JSON.stringify({
+            ...auth,
+            reconnectionToken: room.reconnectionToken,
+          }),
+        );
+        resolve();
+        this.emit("identity");
+      });
+      room.onMessage("lobbies", (lobbies) => {
+        this.lobbies = lobbies;
+        this.emit("lobbies");
+      });
+      room.onError((_code, message) => this.emit("error", message));
+      room.onLeave((code) => {
+        if (!this.intentional.has(room) && code !== 1000)
+          this.recoverIdentity(room);
+      });
+    });
+  }
+  private async recoverIdentity(_room: Room) {
     // Names are released immediately when this connection ends. Never silently
     // reconnect an old identity after another player may have claimed its name.
-    await this.leave();this.emit('disconnected');
+    await this.leave();
+    this.emit("disconnected");
   }
-  async create(name:string,password:string){this.bindMatch(await this.client.create('tactical',{name,password,token:this.token}));}
-  async join(roomId:string,password=''){this.bindMatch(await this.client.joinById(roomId,{password,token:this.token}));}
-  private bindMatch(room:Room){
-    this.match=room;sessionStorage.setItem('collateral.match',room.reconnectionToken);
-    room.onStateChange(state=>{this.state=state.toJSON() as GameView;this.emit('state',this.state);});
-    room.onMessage('error',message=>this.emit('error',message));
-    room.onMessage('shot',(shot:ShotEvent)=>this.emit('shot',shot));
-    room.onMessage('death-recap',(recap:DeathRecap)=>this.emit('death-recap',recap));
-    room.onMessage('fire-rejected',event=>this.emit('fire-rejected',event));
-    room.onMessage('step',step=>this.emit('step',step));room.onMessage('reload',event=>this.emit('reload',event));
-    room.onError((_code,message)=>this.emit('error',message));
-    room.onLeave(code=>{if(!this.intentional.has(room)&&code!==1000)this.recoverMatch(room);});
-    this.emit('match');
+  async create(name: string, password: string) {
+    this.bindMatch(
+      await this.client.create("tactical", {
+        name,
+        password,
+        token: this.token,
+      }),
+    );
   }
-  private async recoverMatch(room:Room){
-    if(this.match!==room||!this.identity)return;
-    this.emit('error','Match connection interrupted. Reconnecting…');
-    for(let attempt=0;attempt<12;attempt++){
-      if(this.match!==room||!this.identity)return;
-      await new Promise(r=>setTimeout(r,Math.min(500+attempt*150,2000)));
-      try{const restored=await this.client.reconnect(room.reconnectionToken);if(this.match!==room||!this.identity){await restored.leave();return;}this.bindMatch(restored);return;}catch{}
+  async join(roomId: string, password = "") {
+    this.bindMatch(
+      await this.client.joinById(roomId, { password, token: this.token }),
+    );
+  }
+  private bindMatch(room: Room) {
+    this.match = room;
+    sessionStorage.setItem("collateral.match", room.reconnectionToken);
+    room.onStateChange((state) => {
+      this.state = state.toJSON() as GameView;
+      this.emit("state", this.state);
+    });
+    room.onMessage("error", (message) => this.emit("error", message));
+    room.onMessage("shot", (shot: ShotEvent) => this.emit("shot", shot));
+    room.onMessage("death-recap", (recap: DeathRecap) =>
+      this.emit("death-recap", recap),
+    );
+    room.onMessage("fire-rejected", (event) =>
+      this.emit("fire-rejected", event),
+    );
+    room.onMessage("step", (step) => this.emit("step", step));
+    room.onMessage("reload", (event) => this.emit("reload", event));
+    room.onError((_code, message) => this.emit("error", message));
+    room.onLeave((code) => {
+      if (!this.intentional.has(room) && code !== 1000) this.recoverMatch(room);
+    });
+    this.emit("match");
+  }
+  private async recoverMatch(room: Room) {
+    if (this.match !== room || !this.identity) return;
+    this.emit("error", "Match connection interrupted. Reconnecting…");
+    for (let attempt = 0; attempt < 12; attempt++) {
+      if (this.match !== room || !this.identity) return;
+      await new Promise((r) =>
+        setTimeout(r, Math.min(500 + attempt * 150, 2000)),
+      );
+      try {
+        const restored = await this.client.reconnect(room.reconnectionToken);
+        if (this.match !== room || !this.identity) {
+          await restored.leave();
+          return;
+        }
+        this.bindMatch(restored);
+        return;
+      } catch {}
     }
-    if(this.match!==room)return;await this.leave();this.emit('error','Could not reconnect to the match.');
+    if (this.match !== room) return;
+    await this.leave();
+    this.emit("error", "Could not reconnect to the match.");
   }
-  send(type:'team'|'start'|'round-limit'|'map-selection'|'back-lobby'|'input'|'fire'|'reload'|'ready',value?:unknown){this.match?.send(type,value);}
-  async ensureMap(id:string,onProgress?:(fraction:number)=>void){
-    if(MAPS.some(map=>map.id===id&&map.asset.startsWith('/maps/')))return;
-    const response=await fetch(`/api/maps/${encodeURIComponent(id)}`);
-    if(!response.ok)throw new Error('The selected map could not be loaded.');
-    const total=Number(response.headers.get('content-length'))||0;
-    let text:string;
-    if(!response.body||!total){onProgress?.(1);text=await response.text();}
-    else{
-      const reader=response.body.getReader(),chunks:Uint8Array[]=[];let received=0;
-      for(;;){const {done,value}=await reader.read();if(done)break;chunks.push(value);received+=value.length;onProgress?.(Math.min(1,received/total));}
-      const bytes=new Uint8Array(received);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
-      text=new TextDecoder().decode(bytes);
+  send(
+    type:
+      | "team"
+      | "start"
+      | "round-limit"
+      | "map-selection"
+      | "back-lobby"
+      | "input"
+      | "fire"
+      | "reload"
+      | "ready"
+      | "weapon",
+    value?: unknown,
+  ) {
+    this.match?.send(type, value);
+  }
+  async weapon(path: string) {
+    if (this.weaponCache.has(path)) return this.weaponCache.get(path)!;
+    const response = await fetch(`/api/weapons/${path}`);
+    if (!response.ok)
+      throw new Error("The selected weapon could not be loaded.");
+    const weapon = (await response.json()) as WeaponManifest;
+    this.weaponCache.set(path, weapon);
+    return weapon;
+  }
+  async ensureMap(id: string, onProgress?: (fraction: number) => void) {
+    if (MAPS.some((map) => map.id === id && map.asset.startsWith("/maps/")))
+      return;
+    const response = await fetch(`/api/maps/${encodeURIComponent(id)}`);
+    if (!response.ok) throw new Error("The selected map could not be loaded.");
+    const total = Number(response.headers.get("content-length")) || 0;
+    let text: string;
+    if (!response.body || !total) {
+      onProgress?.(1);
+      text = await response.text();
+    } else {
+      const reader = response.body.getReader(),
+        chunks: Uint8Array[] = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        onProgress?.(Math.min(1, received / total));
+      }
+      const bytes = new Uint8Array(received);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.length;
+      }
+      text = new TextDecoder().decode(bytes);
     }
-    const map=JSON.parse(text) as GameMap;installMaps([...MAPS.filter(m=>m.id!==map.id),map]);
+    const map = JSON.parse(text) as GameMap;
+    installMaps([...MAPS.filter((m) => m.id !== map.id), map]);
   }
-  async leaveMatch(){
-    const room=this.match;if(room)this.intentional.add(room);
-    this.match=undefined;this.state=undefined;sessionStorage.removeItem('collateral.match');
-    await room?.leave();this.emit('left');
+  async leaveMatch() {
+    const room = this.match;
+    if (room) this.intentional.add(room);
+    this.match = undefined;
+    this.state = undefined;
+    sessionStorage.removeItem("collateral.match");
+    await room?.leave();
+    this.emit("left");
   }
-  async leave(){
-    const room=this.match,identity=this.identity;
-    if(room)this.intentional.add(room);if(identity)this.intentional.add(identity);
-    this.match=undefined;this.identity=undefined;this.state=undefined;this.token='';this.username='';
-    sessionStorage.removeItem('collateral.match');sessionStorage.removeItem('collateral.identity');
-    await Promise.allSettled([room?.leave(),identity?.leave()]);this.emit('left');
+  async leave() {
+    const room = this.match,
+      identity = this.identity;
+    if (room) this.intentional.add(room);
+    if (identity) this.intentional.add(identity);
+    this.match = undefined;
+    this.identity = undefined;
+    this.state = undefined;
+    this.token = "";
+    this.username = "";
+    sessionStorage.removeItem("collateral.match");
+    sessionStorage.removeItem("collateral.identity");
+    await Promise.allSettled([room?.leave(), identity?.leave()]);
+    this.emit("left");
   }
 }

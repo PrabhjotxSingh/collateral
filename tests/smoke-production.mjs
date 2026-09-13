@@ -42,6 +42,22 @@ try {
     (await (await fetch("http://127.0.0.1:2569/api/health")).json()).ok,
     true,
   );
+  const weapons = await (
+    await fetch("http://127.0.0.1:2569/api/weapons")
+  ).json();
+  assert.ok(weapons.some((weapon) => weapon.path === "secondary/glock"));
+  const glockManifest = await (
+    await fetch("http://127.0.0.1:2569/api/weapons/secondary/glock")
+  ).json();
+  assert.equal(glockManifest.assets.view, "/weapons/secondary/glock/view.glb");
+  const packagedView = await fetch(
+    "http://127.0.0.1:2569/weapons/secondary/glock/view.glb",
+  );
+  assert.equal(packagedView.status, 200);
+  assert.equal(
+    Buffer.from(await packagedView.arrayBuffer()).readUInt32LE(0),
+    0x46546c67,
+  );
   for (const path of [
     "weapons/glock.glb",
     "characters/player.glb",
@@ -79,7 +95,7 @@ try {
     await readFile("client/public/assets/sounds/hitmarker.mp3"),
   );
   console.log(
-    "PASS: production serves app, all model/map assets, gun sounds, and the hitmarker sound.",
+    "PASS: production serves app, maps, weapon registry/packages, and sound assets.",
   );
 } finally {
   child.kill("SIGTERM");

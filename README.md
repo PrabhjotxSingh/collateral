@@ -132,7 +132,7 @@ Muzzle lighting now uses one persistent light instead of adding/removing scene l
 on every shot. Effect shaders and the casing material/physics path warm up before use.
 The death clip releases both arms before the collapse; the pistol follows the relaxed hand.
 
-## Map Engine
+## Collateral Engine
 
 Run the separate editor from the project root:
 
@@ -161,3 +161,7 @@ and it appears automatically in the host's lobby map dropdown. `map.json` contai
 the versioned metadata, bounds, spawns, lights, and baked world-space triangle
 collision used by the authoritative server. Invalid packages and folders without
 a matching `map.glb` are skipped safely at startup.
+Open `http://localhost:5174` and choose Map Editor or Character / Weapon Framer.
+The framer exports self-contained packages for `client/public/weapons/primary` and
+`client/public/weapons/secondary`. Installed packages are discovered by the server and
+appear in Loadout automatically.

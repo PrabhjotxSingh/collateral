@@ -232,6 +232,14 @@ export class UI {
       this.persist();
       this.render();
     }
+    if (action === "equip-weapon") {
+      const weapon = this.net.weapons.find((item) => item.path === value);
+      if (!weapon) return;
+      this.settings[weapon.slot] = weapon.id;
+      this.persist();
+      if (this.net.match) this.net.send("weapon", weapon.path);
+      this.render();
+    }
   }
   private bind(code: string) {
     if (!this.binding) return;
@@ -324,8 +332,17 @@ export class UI {
       content = `<header class="page-heading"><p class="eyebrow">TRANSMISSIONS</p><h1>Latest intel.</h1><p>Select a transmission to read the full briefing.</p></header><div class="news-grid">${NEWS.map((n, i) => `<details class="news-card" ${i === 0 ? "open" : ""}><summary><span><small class="eyebrow">${n.tag}</small><strong>${n.title}</strong></span><i aria-hidden="true">+</i></summary><div class="news-body"><p>${n.text}</p></div></details>`).join("")}</div>`;
     if (this.page === "play")
       content = `<header class="page-heading"><p class="eyebrow">MULTIPLAYER</p><h1>Squad up.</h1><p>Choose your team. Make every round count.</p></header><div class="play-grid"><section class="panel browser"><div class="section-title"><h2>Server browser</h2><span class="eyebrow">LIVE</span></div><div id="lobby-list"></div></section><section class="panel create"><p class="eyebrow">HOST A MATCH</p><h2>Create lobby</h2><form id="create-form"><label for="lobby-name">Lobby name</label><input id="lobby-name" name="name" maxlength="40" placeholder="Friday night squad" required><label for="lobby-password">Password <span class="muted">optional</span></label><input id="lobby-password" name="password" type="password" maxlength="64" autocomplete="new-password" placeholder="Open lobby"><button class="primary">CREATE LOBBY</button></form><p class="muted">Start with 1v1 or 2v2. Balanced teams required.</p></section></div>`;
-    if (this.page === "loadout")
-      content = `<header class="page-heading"><p class="eyebrow">STANDARD ISSUE</p><h1>Loadout.</h1><p>Load up and get ready for battle.</p></header><div class="loadout-grid"><section class="panel locked-slot primary-slot"><p class="eyebrow">PRIMARY</p><h2>UNEQUIPPED</h2><p>Primary weapons are coming later.</p></section><section class="weapon panel"><p class="eyebrow">SIDEARM / EQUIPPED</p><h2>GLOCK</h2><div class="weapon-type">9×19<span>SEMI-AUTOMATIC</span></div><dl><div><dt>Magazine</dt><dd>17</dd></div><div><dt>Reserve</dt><dd>51</dd></div><div><dt>Reload</dt><dd>1.7s</dd></div></dl></section></div>`;
+    if (this.page === "loadout") {
+      const cards = (slot: "primary" | "secondary") =>
+        this.net.weapons
+          .filter((w) => w.slot === slot)
+          .map(
+            (w) =>
+              `<button class="weapon panel ${this.settings[slot] === w.id ? "equipped" : ""}" data-action="equip-weapon" data-value="${esc(w.path)}"><p class="eyebrow">${slot.toUpperCase()} ${this.settings[slot] === w.id ? "/ EQUIPPED" : ""}</p><h2>${esc(w.name)}</h2><span>${this.settings[slot] === w.id ? "EQUIPPED" : "EQUIP"}</span></button>`,
+          )
+          .join("");
+      content = `<header class="page-heading"><p class="eyebrow">STANDARD ISSUE</p><h1>Loadout.</h1><p>Load up and get ready for battle.</p></header><div class="loadout-grid">${cards("primary") || '<section class="panel locked-slot primary-slot"><p class="eyebrow">PRIMARY</p><h2>UNEQUIPPED</h2><p>Install a primary weapon package to unlock this slot.</p></section>'}${cards("secondary")}</div>`;
+    }
     if (this.page === "settings") content = this.settingsContent();
     this.root.innerHTML = this.shell(content);
     if (this.page === "play") this.renderBrowser();
@@ -427,6 +444,16 @@ export class UI {
       performance.now() < this.damageUntil
         ? `<div class="damage-direction" style="--damage-angle:${this.damageAngle}deg"><i></i></div>`
         : "";
+    const equipped = this.net.weapons.find(
+      (weapon) => weapon.path === me.weapon,
+    );
+    const weaponName = equipped?.name ?? me.weapon.split("/").pop() ?? "Weapon";
+    const weaponSlot = equipped?.slot === "primary" ? "1" : "2";
     this.hud.innerHTML = `<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>ROUND ${s.round}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : `ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>Round ${s.round}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}` : "ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : "GLOCK"}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">ESC · Release mouse</div>`;
+    this.hud.innerHTML = this.hud.innerHTML.replace("GLOCK", esc(weaponName));
+    this.hud.insertAdjacentHTML(
+      "beforeend",
+      `<div class="weapon-switch-label"><small>${weaponSlot}</small>${esc(weaponName)}</div>`,
+    );
   }
 }

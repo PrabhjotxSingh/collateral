@@ -63,3 +63,44 @@
     scale: 1;
   }
 }
+.weapon-switch-label {
+  position: fixed;
+  left: 30px;
+  bottom: 122px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #f1f4f5;
+  font:
+    700 15px/1.1 Inter,
+    sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 5px #000;
+}
+.weapon-switch-label small {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid #ffffff50;
+  color: #e7ad5c;
+  font:
+    11px Consolas,
+    monospace;
+}
+@media (max-width: 650px) {
+  .weapon-switch-label {
+    bottom: 104px;
+  }
+}
+.loadout-grid .weapon {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.loadout-grid .weapon.equipped {
+  border-color: #e8a54c;
+  box-shadow: inset 3px 0 #e8a54c;
+}
