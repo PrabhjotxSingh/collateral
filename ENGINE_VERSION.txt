@@ -1,4 +1,4 @@
-Collateral Engine v2.0
+Collateral Engine v2.3 - Save workflow and weapon switching
 
 - Axis and rotation gizmos for the player reference, spawns, and lights
 - Map clicks no longer reposition the reference capsule
@@ -21,3 +21,23 @@ Collateral Engine v2.0
 - Editable hip/ADS framing and ADS FOV
 - First/third-person muzzle sockets, flash, tracer, and smoke controls
 - Continuous first/third-person Play Test preview
+
+- Character-space third-person capture and hand conversion
+- Live 16:9 first-person framing preview
+- Single-source action animation mapping with frame ranges and None
+- Short-arc HIP/ADS rotations including quaternion gizmo capture
+- Semi/automatic fire rules
+- Animated muzzle-node attachment and corrected G17 barrel anchor
+- Bounded stair stepping and ground snapping
+
+- Per-weapon pistol/rifle/custom arm poses
+- Shared editor/runtime support-hand solver and wrist target
+- Arm/hand/finger joint controls with saved weapon poses
+- Socket-local third-person exports referencing shared SWAT
+- Optional custom editor references; no duplicate built-in character
+
+- Save tab consolidates first- and third-person capture actions
+- Interrupted reload/draw/fire tracks reset to idle on weapon switch
+- Incomplete reloads preserve old ammo and receive no reload award
+- Immediate first crouch pose removes the standing-frame flash
+- Installed primary weapons are always assigned and equipped

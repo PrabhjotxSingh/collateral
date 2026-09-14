@@ -6,7 +6,7 @@ class Spring {
   value=0;velocity=0;
   step(target:number,dt:number,frequency=16){const y=this.value-target,j=this.velocity+frequency*y,e=Math.exp(-frequency*dt);this.value=target+(y+j*dt)*e;this.velocity=(this.velocity-frequency*j*dt)*e;return this.value;}
 }
-export interface MotionInput {yaw:number;pitch:number;vx:number;vy:number;vz:number;grounded:boolean;crouch:boolean;ads:boolean;sprint:boolean;reloading:boolean;stepPhase:number;lookActive:boolean}
+export interface MotionInput {yaw:number;pitch:number;vx:number;vy:number;vz:number;grounded:boolean;crouch:boolean;ads:boolean;sprint:boolean;reloading:boolean;stepPhase:number;lookActive:boolean;proceduralIdle?:boolean}
 export interface WeaponPose {x:number;y:number;z:number;pitch:number;yaw:number;roll:number;ads:number;sprint:number}
 export class ViewmodelMotion {
   private sx=new Spring();private sy=new Spring();private strafe=new Spring();private lateral=new Spring();private inertiaX=new Spring();private inertiaZ=new Spring();private dip=new Spring();private crouch=new Spring();private bobWeight=new Spring();private reloadWeight=new Spring();
@@ -21,7 +21,7 @@ export class ViewmodelMotion {
     this.sprintT=clamp(this.sprintT+(input.sprint&&!input.ads&&!input.reloading?1:-1)*dt/RULES.weaponRaiseSeconds,0,1);
     this.adsT=clamp(this.adsT+(input.ads&&!input.sprint&&!input.reloading?1:-1)*dt/.18,0,1);
     const ads=ease(this.adsT),sprint=ease(this.sprintT),crouch=this.crouch.step(input.crouch?1:0,dt,18);
-    const clean=1-this.reloadWeight.step(input.reloading?1:0,dt,35),steadiness=(1-.82*ads)*clean;
+    const clean=1-this.reloadWeight.step(input.reloading?1:0,dt,35),steadiness=(1-.82*ads)*clean*(input.proceduralIdle===false?0:1);
     const side=(input.vx*Math.cos(input.yaw)-input.vz*Math.sin(input.yaw))/RULES.walkSpeed;
     const roll=this.strafe.step(clamp(-side*.035,-.05,.05),dt,15),offset=this.lateral.step(clamp(side*.007,-.01,.01),dt,15);
     const ax=clamp((input.vx-old.vx)/dt,-22,22),az=clamp((input.vz-old.vz)/dt,-22,22);

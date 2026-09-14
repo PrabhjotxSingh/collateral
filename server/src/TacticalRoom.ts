@@ -109,10 +109,14 @@ export class TacticalRoom extends Room<GameState> {
     const p = new PlayerState();
     p.id = client.sessionId;
     p.username = identity.username;
+    p.weapon = [...WEAPONS.entries()].find(([,weapon])=>weapon.slot==="primary")?.[0] ??
+      [...WEAPONS.entries()].find(([,weapon])=>weapon.slot==="secondary")?.[0] ?? p.weapon;
     p.team =
       [...this.state.players.values()].filter((p) => p.team === "A").length < 2
         ? "A"
         : "B";
+    const initial=WEAPONS.get(p.weapon)?.gameplay;
+    if(initial){p.ammo=initial.magazine;p.reserve=initial.reserve;}
     this.state.players.set(p.id, p);
     if (!this.state.hostId) this.state.hostId = p.id;
     this.updateListing();

@@ -1,3 +1,9 @@
+import { HoldingRig, createWeaponSocket, isArmJoint } from "../../shared/holding-pose";
+import type { HoldingPose } from "../../shared/weapons";
+import defaultCharacterUrl from "../../client/public/assets/characters/player.glb?url";
+import { blendFrame, readFrame, fitCharacter, frameMatrix, applyMatrix } from "../../shared/weapon-transforms";
+import { ClipPlayer, findClip, drawPose } from "../../client/src/animation";
+import { type AnimationBinding, NO_ANIMATION } from "../../shared/weapons";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ArcRotateCamera,
@@ -17,6 +23,7 @@ import {
   TransformNode,
   UniversalCamera,
   Vector3,
+  Viewport,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import JSZip from "jszip";
@@ -73,15 +80,7 @@ const download = (blob: Blob, name: string) => {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
-const readTransform = (n: TransformNode): Transform => ({
-  x: +n.position.x.toFixed(4),
-  y: +n.position.y.toFixed(4),
-  z: +n.position.z.toFixed(4),
-  pitch: +((n.rotation.x * 180) / Math.PI).toFixed(3),
-  yaw: +((n.rotation.y * 180) / Math.PI).toFixed(3),
-  roll: +((n.rotation.z * 180) / Math.PI).toFixed(3),
-  scale: +n.scaling.x.toFixed(4),
-});
+const readTransform = readFrame;
 const applyTransform = (n: TransformNode, t: Transform) => {
   n.position.set(t.x, t.y, t.z);
   n.rotationQuaternion = null;
@@ -112,6 +111,10 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     fingerNodes = useRef(new Map<string, TransformNode>()),
     pose = useRef<FingerPose>({});
   const [mode, setMode] = useState<PoseMode>("first-person"),
+    [livePreview, setLivePreview] = useState(true),
+    [holding,setHolding]=useState<HoldingPose>({preset:"pistol",arms:{},supportHand:{enabled:false,target:identity(),orient:false}}),
+    [holdingPreview,setHoldingPreview]=useState(true),
+    [includeReference,setIncludeReference]=useState(false),
     [panel, setPanel] = useState("models"),
     [transformTool, setTransformTool] = useState<TransformTool>("move"),
     [selected, setSelected] = useState("fp-gun"),
@@ -135,10 +138,14 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       "third-person": [],
     }),
     [animationMap, setAnimationMap] = useState<
-      Record<PoseMode, Partial<Record<AnimationAction, string>>>
+      Record<PoseMode, Partial<Record<AnimationAction, AnimationBinding>>>
     >({ "first-person": {}, "third-person": {} }),
     [fingers, setFingers] = useState<string[]>([]),
     [exporting, setExporting] = useState(false);
+  const previewPlayer = useRef<ClipPlayer | undefined>(undefined),
+    proceduralFrame = useRef(0),
+    restorePreview = useRef<(() => void) | undefined>(undefined);
+  const stopPreview = () => { cancelAnimationFrame(proceduralFrame.current); previewPlayer.current?.dispose(); previewPlayer.current=undefined; restorePreview.current?.(); restorePreview.current=undefined; };
   const hip = useRef<Transform>(identity()),
     thirdPose = useRef<{ weapon: Transform; character: Transform } | undefined>(undefined),
     hipCaptured = useRef(false),
@@ -146,6 +153,12 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     adsAnimation = useRef(0),
     previewUrls = useRef<string[]>([]),
     testTimer = useRef<number | undefined>(undefined);
+  const referenceIdle=useRef<import("@babylonjs/core").AnimationGroup|undefined>(undefined);
+  const holdingRig=useRef<HoldingRig|undefined>(undefined),
+    weaponSocket=useRef<TransformNode|undefined>(undefined),
+    sharedReference=useRef(false);
+  const holdingRef=useRef(holding),holdingPreviewRef=useRef(holdingPreview);
+  holdingRef.current=holding;holdingPreviewRef.current=holdingPreview;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   transformToolRef.current = transformTool;
@@ -190,6 +203,9 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     pov.fovMode = Camera.FOVMODE_HORIZONTAL_FIXED;
     pov.fov = (95 * Math.PI) / 180;
     pov.inputs.clear();
+    s.cameraToUseForPointers=cam;
+    pov.layerMask = 0x0fffffff;
+    cam.layerMask = 0x1fffffff;
     const light = new HemisphericLight("studio", new Vector3(0.2, 1, -0.3), s);
     light.intensity = 1.35;
     const ground = MeshBuilder.CreateGround(
@@ -215,8 +231,11 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       tipMat.emissiveColor = new Color3(1, 0.45, 0.08);
       tip.material = tipMat;
       tip.parent = marker;
+      tip.layerMask = 0x10000000;
     }
     const gm = (gizmo.current = new GizmoManager(s));
+    gm.utilityLayer.setRenderCamera(cam);
+    gm.keepDepthUtilityLayer.setRenderCamera(cam);
     gm.usePointerToAttachGizmos = false;
     gm.positionGizmoEnabled = true;
     gm.rotationGizmoEnabled = false;
@@ -241,33 +260,70 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     );
     arrow.color = new Color3(0.35, 0.78, 1);
     arrow.parent = direction;
+    const releaseFire=()=>{if(testTimer.current)clearInterval(testTimer.current);testTimer.current=undefined;};
+    window.addEventListener("pointerup",releaseFire);
+    window.addEventListener("blur",releaseFire);
     const resize = () => engine.resize();
     window.addEventListener("resize", resize);
+    s.onBeforeAnimationsObservable.add(()=>holdingRig.current?.restore());
+    s.onAfterAnimationsObservable.add(()=>{
+      if(holdingPreviewRef.current){
+        const target=roots.current["tp-support"];
+        const config={...holdingRef.current,supportHand:{...holdingRef.current.supportHand,target:target?readTransform(target):holdingRef.current.supportHand.target}};
+        holdingRig.current?.apply(config,roots.current["tp-gun"]);
+      }
+    });
     engine.runRenderLoop(() => s.render());
     return () => {
+      stopPreview();
+      cancelAnimationFrame(adsAnimation.current);
       if (testTimer.current) clearInterval(testTimer.current);
       for (const url of previewUrls.current) URL.revokeObjectURL(url);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("pointerup",releaseFire);
+      window.removeEventListener("blur",releaseFire);
       engine.dispose();
     };
   }, []);
   useEffect(() => {
     const fp = roots.current["fp-muzzle"],
       tp = roots.current["tp-muzzle"];
-    if (fp) applyTransform(fp, effects.muzzle.firstPerson);
-    if (tp) applyTransform(tp, effects.muzzle.thirdPerson);
-  }, [effects.muzzle]);
+    for(const [prefix,key,node] of [["fp","firstPerson",fp],["tp","thirdPerson",tp]] as const){
+      if(!node)continue;
+      const root=roots.current[prefix+"-gun"],name=effects.muzzleNode?.[key];
+      node.parent=name?root?.getChildTransformNodes(false).find(n=>n.name===name)??root:root;
+      applyTransform(node,effects.muzzle[key]);
+    }
+  }, [effects.muzzle,effects.muzzleNode]);
   useEffect(() => {
     if (playerCamera.current)
       playerCamera.current.fov = (previewFov * Math.PI) / 180;
   }, [previewFov]);
   useEffect(() => attach(), [transformTool]);
   useEffect(() => {
+    const s=scene.current,cam=camera.current,pov=playerCamera.current;
+    if(!s||!cam||!pov)return;
+    const layout=()=>{
+      if(mode==="first-person" && livePreview && !testing){
+        cam.viewport=new Viewport(0,0,.55,1);
+        const width=s.getEngine().getRenderWidth(),height=s.getEngine().getRenderHeight(),w=Math.min(.44,height*.75*(16/9)/width),h=width*w/(height*(16/9));
+        pov.viewport=new Viewport(1-w,(1-h)/2,w,h);
+        s.activeCameras=[cam,pov];
+      }else{
+        cam.viewport=new Viewport(0,0,1,1);pov.viewport=new Viewport(0,0,1,1);
+        s.activeCameras=null;s.activeCamera=testing&&mode==="first-person"?pov:cam;
+      }
+    };
+    layout();const observer=s.getEngine().onResizeObservable.add(layout);
+    return ()=>{s.getEngine().onResizeObservable.remove(observer);};
+  },[mode,livePreview,testing]);
+  useEffect(() => {
     if (testTimer.current) {
       clearInterval(testTimer.current);
       testTimer.current = undefined;
       setTesting(false);
     }
+    setTesting(false);
     if (scene.current && camera.current)
       scene.current.activeCamera = camera.current;
     for (const [key, node] of Object.entries(roots.current))
@@ -297,9 +353,25 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     setSelected(fallback);
     queueMicrotask(() => attach(fallback));
   }, [mode]);
+  useEffect(() => {
+    if (panel !== "poses" && panel !== "effects") return;
+    const prefix = mode === "first-person" ? "fp" : "tp";
+    const key = `${prefix}-${panel === "effects" ? "muzzle" : "gun"}`;
+    setSelected(key);
+    attach(key);
+  }, [panel, mode]);
   async function load(kind: "view" | "character" | "world", file: File) {
     const s = scene.current;
     if (!s) return;
+    stopPreview();
+    holdingRig.current?.restore();
+    if(kind==="character"){
+      sharedReference.current=false;
+      if(roots.current["tp-gun"])roots.current["tp-gun"].setParent(null);
+      holdingRig.current=undefined;weaponSocket.current=undefined;
+    }
+    if(kind==="world"&&roots.current["tp-support"])roots.current["tp-support"].parent=null;
+    if(kind==="world"&&!roots.current["tp-character"])await loadDefaultCharacter();
     const key =
       kind === "view"
         ? "fp-gun"
@@ -318,6 +390,18 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     const result = await SceneLoader.ImportMeshAsync("", "", file, s);
     for (const node of [...result.transformNodes, ...result.meshes])
       if (!node.parent) node.parent = root;
+    if(kind==="character"){
+      const fitted=new TransformNode("reference-fit",s);
+      for(const child of root.getChildren()) if(child instanceof TransformNode)child.parent=fitted;
+      for(const group of result.animationGroups)group.stop();
+      const idle=findClip(result.animationGroups,"idle");
+      referenceIdle.current=idle;
+      if(idle){idle.start(true,1,idle.from,idle.to);idle.setWeightForAllAnimatables(1);idle.goToFrame(idle.from);idle.pause();}
+      fitCharacter(fitted,1.8);fitted.parent=root;
+      holdingRig.current=new HoldingRig(fitted);
+      weaponSocket.current=createWeaponSocket(fitted);
+      if(roots.current["tp-gun"]&&weaponSocket.current)roots.current["tp-gun"].setParent(weaponSocket.current);
+    }
     if (kind === "view" && roots.current["fp-muzzle"])
       roots.current["fp-muzzle"].parent = root;
     if (kind === "world" && roots.current["tp-muzzle"])
@@ -332,7 +416,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       for (const skeleton of result.skeletons)
         for (const bone of skeleton.bones) {
           const node = bone.getTransformNode();
-          if (node && isFinger(bone.name)) {
+          if (node && (isFinger(bone.name)||(kind==="character"&&isArmJoint(bone.name)))) {
             const label = bone.name;
             fingerNodes.current.set(prefix + label, node);
             found.add(label);
@@ -364,7 +448,13 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         setAds(readTransform(root));
         hipCaptured.current = false;
       }
-    } else root.position.set(0, 1.25, 0.25);
+    } else {
+      root.position.set(0, 1.25, 0.25);
+      if(weaponSocket.current)root.setParent(weaponSocket.current);
+      const marker=ensureSupportMarker();marker.setParent(root);
+      placeSupportAtHand();
+    }
+    if(kind !== "character") {
     const clipMode = kind === "view" ? "first-person" : "third-person";
     const names = result.animationGroups.map((group) => group.name);
     importedGroups.current[clipMode] = result.animationGroups;
@@ -382,6 +472,8 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         return next;
       });
     }
+    for(const group of result.animationGroups)group.stop();
+    }
     for (const mesh of root.getChildMeshes())
       if (mesh instanceof Mesh) mesh.isPickable = false;
     root.setEnabled(
@@ -390,7 +482,16 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     setSelected(key);
     attach(key);
   }
+  async function loadDefaultCharacter(){
+    try{
+      const response=await fetch(defaultCharacterUrl);
+      if(!response.ok)throw Error("Could not load the game reference");
+      await load("character",new File([await response.blob()],"character.glb",{type:"model/gltf-binary"}));
+      sharedReference.current=true;
+    }catch(error){setStatus((error as Error).message);}
+  }
   function selectFinger(name: string) {
+    if(mode==="third-person")pauseHoldingForEdit();
     const key = (mode === "first-person" ? "fp:" : "tp:") + name;
     setSelected(`finger:${key}`);
     const node = fingerNodes.current.get(key);
@@ -408,6 +509,61 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       };
       attach(`finger:${key}`);
     }
+  }
+  function ensureSupportMarker(){
+    if(roots.current["tp-support"])return roots.current["tp-support"];
+    const marker=new TransformNode("tp-support",scene.current!);
+    const sphere=MeshBuilder.CreateSphere("support-hand-target",{diameter:.035},scene.current!);
+    const material=new StandardMaterial("support-hand-green",scene.current!);material.emissiveColor=new Color3(.2,1,.55);
+    sphere.material=material;sphere.parent=marker;sphere.layerMask=0x10000000;
+    roots.current["tp-support"]=marker;return marker;
+  }
+  function pauseHoldingForEdit(){
+    const rig=holdingRig.current;
+    const visible=rig?.joints.map(n=>[n,n.rotationQuaternion?.clone()??Quaternion.FromEulerVector(n.rotation)] as const);
+    rig?.restore();
+    for(const [n,q]of visible??[])n.rotationQuaternion=q;
+    holdingPreviewRef.current=false;setHoldingPreview(false);
+  }
+  function placeSupportAtHand(forward=0){
+    const marker=ensureSupportMarker(),gun=roots.current["tp-gun"],hand=holdingRig.current?.left.hand;
+    if(!gun||!hand)return;
+    hand.computeWorldMatrix(true);
+    const world=hand.getWorldMatrix().clone();
+    const character=roots.current["tp-character"];
+    const direction=Vector3.TransformNormal(new Vector3(0,0,forward),character.computeWorldMatrix(true));
+    world.setTranslation(world.getTranslation().add(direction));
+    marker.parent=gun;
+    applyMatrix(marker,world.multiply(Matrix.Invert(gun.computeWorldMatrix(true))));
+    marker.scaling.setAll(1);
+    setHolding(h=>({...h,supportHand:{...h.supportHand,target:readTransform(marker)}}));
+  }
+  function resetReferenceBase(){
+    holdingRig.current?.restore();
+    const idle=referenceIdle.current;
+    if(idle)idle.goToFrame(idle.from);
+    for(const [key,q]of Object.entries(pose.current)){
+      if(!key.startsWith("tp:")||isArmJoint(key))continue;
+      const node=fingerNodes.current.get(key);
+      if(node)node.rotationQuaternion=new Quaternion(q.x,q.y,q.z,q.w);
+    }
+  }
+  function chooseHoldingPreset(preset:HoldingPose["preset"]){
+    resetReferenceBase();
+    setHolding(h=>({...h,preset,arms:{},supportHand:{...h.supportHand,enabled:preset==="rifle"}}));
+    if(preset==="rifle")placeSupportAtHand(.18);
+    setHoldingPreview(true);
+    setStatus(preset==="rifle"?"Rifle starter pose. Move the green support target to the foregrip, then fine-tune its wrist rotation.":"Using the character's pistol stance. Arm and finger adjustments are saved per weapon.");
+  }
+  function captureArms(){
+    const arms=Object.fromEntries((holdingRig.current?.joints??[]).map(n=>{
+      const q=n.rotationQuaternion??Quaternion.FromEulerVector(n.rotation);
+      return [n.name.slice(n.name.indexOf("mixamorig:")),{x:q.x,y:q.y,z:q.z,w:q.w}];
+    }));
+    resetReferenceBase();
+    setHolding(h=>({...h,arms}));
+    setHoldingPreview(true);
+    setStatus("Saved this weapon's arm pose. Movement uses it before applying the support-hand target.");
   }
   function mirrorPose() {
     const prefix = mode === "first-person" ? "fp:" : "tp:",
@@ -504,29 +660,25 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         "Capture the HIP pose first, then position and capture ADS.",
       );
     cancelAnimationFrame(adsAnimation.current);
-    if (next) applyTransform(gun, hip.current);
+    stopPreview();
     const from = readTransform(gun),
       to = next ? ads : hip.current,
-      started = performance.now();
+      started = performance.now(),
+      fromFov=playerCamera.current?.fov??previewFov*Math.PI/180,
+      toFov=previewFov*Math.PI/180*(next?adsFov:1);
     const animate = (now: number) => {
-      const raw = Math.min(1, (now - started) / 220),
+      const raw = Math.min(1, (now - started) / 180),
         t = raw * raw * (3 - 2 * raw);
-      const mix = (a: number, b: number) => a + (b - a) * t;
-      applyTransform(gun, {
-        x: mix(from.x, to.x),
-        y: mix(from.y, to.y),
-        z: mix(from.z, to.z),
-        pitch: mix(from.pitch, to.pitch),
-        yaw: mix(from.yaw, to.yaw),
-        roll: mix(from.roll, to.roll),
-        scale: mix(from.scale, to.scale),
-      });
+      blendFrame(gun,from,to,t);
+      if(playerCamera.current)playerCamera.current.fov=fromFov+(toFov-fromFov)*t;
       if (raw < 1) adsAnimation.current = requestAnimationFrame(animate);
     };
     adsAnimation.current = requestAnimationFrame(animate);
     setAiming(next);
   }
-  function captureAds() {
+  function captureAds(ask = true) {
+    stopPreview();
+    cancelAnimationFrame(adsAnimation.current);
     const gun = roots.current["fp-gun"];
     if (!gun) return;
     if (!hipCaptured.current)
@@ -534,7 +686,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         "Capture the HIP pose first. ADS must be derived from that baseline.",
       );
     if (
-      !window.confirm(
+      ask && !window.confirm(
         "Replace the saved ADS pose with the weapon's current transform?",
       )
     )
@@ -542,11 +694,12 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     setAds(readTransform(gun));
     setStatus("Captured the current gun transform as the ADS pose.");
   }
-  function captureHip() {
+  function captureHip(ask = true) {
+    stopPreview();
     const gun = roots.current["fp-gun"];
     if (!gun) return;
     if (
-      !window.confirm(
+      ask && !window.confirm(
         "Replace the saved HIP pose with the weapon's current transform? ADS will continue to use its separately saved pose.",
       )
     )
@@ -554,6 +707,33 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     hip.current = readTransform(gun);
     hipCaptured.current = true;
     setStatus("Captured the current gun transform as the hip pose.");
+  }
+  function captureFingerPose(targetMode:PoseMode){
+    const prefix=targetMode==="first-person"?"fp:":"tp:";
+    for(const [key,node]of fingerNodes.current){
+      if(!key.startsWith(prefix)||isArmJoint(key))continue;
+      const q=node.rotationQuaternion??Quaternion.FromEulerVector(node.rotation);
+      pose.current[key]={x:+q.x.toFixed(6),y:+q.y.toFixed(6),z:+q.z.toFixed(6),w:+q.w.toFixed(6)};
+    }
+  }
+  function captureThirdPerson(ask=true){
+    stopPreview();
+    const gun=roots.current["tp-gun"],character=roots.current["tp-character"];
+    if(!gun)return setStatus("Load the third-person weapon first.");
+    if(ask&&!window.confirm("Capture the current third-person attachment, arm pose, fingers and support-hand target?"))return;
+    thirdPose.current={weapon:readTransform(gun),character:character?readTransform(character):identity()};
+    captureArms();captureFingerPose("third-person");
+    if(roots.current["tp-support"])setHolding(h=>({...h,supportHand:{...h.supportHand,target:readTransform(roots.current["tp-support"])}}));
+    setStatus("Captured third-person attachment, holding pose, fingers and support target.");
+  }
+  function captureAll(){
+    if(mode==="first-person"){
+      if(aiming)captureAds(false);else captureHip(false);
+      captureFingerPose("first-person");
+      const marker=roots.current["fp-muzzle"];
+      if(marker)setEffects(v=>({...v,muzzle:{...v.muzzle,firstPerson:readTransform(marker)}}));
+      setStatus(`Captured the current ${aiming?"ADS":"HIP"} pose, first-person fingers and muzzle. Switch HIP/ADS and capture the other pose when you adjust it.`);
+    }else captureThirdPerson(false);
   }
   async function importPackage(file: File) {
     try {
@@ -595,6 +775,11 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
           { type },
         );
       };
+      stopPreview();
+      holdingRig.current?.restore();
+      if(roots.current["tp-gun"])roots.current["tp-gun"].setParent(null);
+      if(roots.current["tp-support"])roots.current["tp-support"].parent=null;
+      for(const key of ["fp-muzzle","tp-muzzle"])if(roots.current[key])roots.current[key].parent=null;
       for (const key of ["fp-gun", "tp-character", "tp-gun"])
         roots.current[key]?.dispose();
       files.current = {};
@@ -651,9 +836,12 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       );
       if (view) await load("view", view);
       if (character) await load("character", character);
+      else await loadDefaultCharacter();
       if (world) await load("world", world);
       if (shot) files.current.shotSound = shot;
       if (reload) files.current.reloadSound = reload;
+      setAds(structuredClone(manifest.firstPerson.ads));
+      setAnimationMap({"first-person":manifest.firstPerson.animations??{},"third-person":manifest.thirdPerson.animations??{}});
       hip.current = structuredClone(manifest.firstPerson.weapon);
       thirdPose.current = {
         weapon: structuredClone(manifest.thirdPerson.weapon),
@@ -667,8 +855,33 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
           roots.current["tp-character"],
           manifest.thirdPerson.character,
         );
-      if (roots.current["tp-gun"])
-        applyTransform(roots.current["tp-gun"], manifest.thirdPerson.weapon);
+      if (roots.current["tp-gun"]) {
+        const gun=roots.current["tp-gun"],character=roots.current["tp-character"],socket=weaponSocket.current;
+        gun.parent=socket??null;
+        if(manifest.thirdPerson.space==="socket"||(!manifest.thirdPerson.space&&!manifest.firstPerson.editorFramed)){
+          applyTransform(gun,manifest.thirdPerson.weapon);
+        }else{
+          let world=frameMatrix(manifest.thirdPerson.weapon);
+          if(!manifest.thirdPerson.space&&manifest.firstPerson.editorFramed){
+            const fit=character.getChildTransformNodes(true).find(n=>n.name==="reference-fit");
+            if(fit){
+              const placement=character.computeWorldMatrix(true);
+              const normalization=fit.computeWorldMatrix(true).multiply(Matrix.Invert(placement));
+              world=world.multiply(Matrix.Invert(placement)).multiply(normalization).multiply(placement);
+            }
+          }
+          applyMatrix(gun,socket?world.multiply(Matrix.Invert(socket.computeWorldMatrix(true))):world);
+        }
+        thirdPose.current={weapon:readTransform(gun),character:readTransform(character)};
+        const marker=ensureSupportMarker();marker.parent=gun;
+        applyTransform(marker,manifest.thirdPerson.holding?.supportHand.target??identity());
+      }
+      setHolding(manifest.thirdPerson.holding??{preset:"pistol",arms:{},supportHand:{enabled:false,target:identity(),orient:false}});
+      setHoldingPreview(true);setIncludeReference(false);
+      for(const [prefix,key] of [["fp","firstPerson"],["tp","thirdPerson"]] as const){
+        const root=roots.current[prefix+"-gun"],marker=roots.current[prefix+"-muzzle"],name=manifest.effects.muzzleNode?.[key];
+        if(marker)marker.parent=name?root?.getChildTransformNodes(false).find(n=>n.name===name)??root:root;
+      }
       if (roots.current["fp-muzzle"])
         applyTransform(
           roots.current["fp-muzzle"],
@@ -705,15 +918,15 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     }
   }
   function previewAnimation(action: AnimationAction, targetMode: PoseMode) {
-    const choice = animationMap[targetMode][action];
-    const group = importedGroups.current[targetMode].find(
-      (item) => item.name === choice,
-    );
-    for (const item of importedGroups.current[targetMode]) item.stop();
-    if (group) {
-      group.start(action === "idle", 1, group.from, group.to);
-      return setStatus(`Playing embedded clip: ${group.name}`);
+    stopPreview();
+    const choice = animationMap[targetMode][action] ?? BUILTIN_ANIMATION;
+    const player=new ClipPlayer(importedGroups.current[targetMode],{[action]:choice});
+    previewPlayer.current=player;
+    if(player.play(action,action==="idle",action==="reload"?gameplay.reloadSeconds:action==="draw"?.55:undefined)){
+      player.tick(1);
+      return setStatus("Playing the selected model clip / range only.");
     }
+    if(choice!==BUILTIN_ANIMATION)return setStatus(choice===NO_ANIMATION?"Animation disabled.":"Selected clip or range is unavailable. No procedural substitute is played.");
     const root =
       roots.current[targetMode === "first-person" ? "fp-gun" : "tp-gun"];
     if (!root) return setStatus("Load this view's weapon model first.");
@@ -727,14 +940,14 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
               ? gameplay.reloadSeconds
               : 0.35,
       started = performance.now();
+    restorePreview.current=()=>applyTransform(root,base);
     const frame = (now: number) => {
       const t = Math.min(1, (now - started) / (duration * 1000)),
         wave = Math.sin(Math.PI * t),
         next = { ...base };
       if (action === "draw") {
-        const ease = t * t * (3 - 2 * t);
-        next.y -= 0.3 * (1 - ease);
-        next.z -= 0.08 * (1 - ease);
+        const p=drawPose(t*.55);
+        next.x+=p.x;next.y+=p.y;next.z+=p.z;next.pitch+=p.pitch*180/Math.PI;next.roll+=p.roll*180/Math.PI;
       }
       if (action === "fire") {
         next.z -= 0.055 * wave;
@@ -746,10 +959,10 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         next.roll += 16 * wave;
       }
       applyTransform(root, next);
-      if (t < 1) requestAnimationFrame(frame);
+      if (t < 1) proceduralFrame.current=requestAnimationFrame(frame);
       else applyTransform(root, base);
     };
-    requestAnimationFrame(frame);
+    proceduralFrame.current=requestAnimationFrame(frame);
     setStatus(
       `Playing Collateral built-in ${action}: ${animationLabels[action]}.`,
     );
@@ -829,11 +1042,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         (end.subtract(start).length() / effects.tracer.speed) * 1000,
       ),
     );
-    const fireName = animationMap[mode].fire;
-    const fireGroup = importedGroups.current[mode].find(
-      (group) => group.name === fireName,
-    );
-    if (fireGroup) fireGroup.start(false, 1, fireGroup.from, fireGroup.to);
+    previewAnimation("fire",mode);
     const sound = files.current.shotSound;
     if (sound) {
       const url = URL.createObjectURL(sound);
@@ -851,31 +1060,30 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       `${mode === "first-person" ? "First" : "Third"}-person shot preview · ${gameplay.rpm} RPM · ${gameplay.damage} damage.`,
     );
   }
+  const latestTestShot=useRef(testShot);
+  latestTestShot.current=testShot;
   function toggleTest() {
-    if (testTimer.current) {
-      clearInterval(testTimer.current);
-      testTimer.current = undefined;
-      setTesting(false);
-      if (scene.current && camera.current)
-        scene.current.activeCamera = camera.current;
-      return;
-    }
-    if (scene.current && mode === "first-person" && playerCamera.current)
-      scene.current.activeCamera = playerCamera.current;
-    testShot();
-    testTimer.current = window.setInterval(
-      testShot,
-      Math.max(60, 60000 / gameplay.rpm),
-    );
-    setTesting(true);
+    if(testTimer.current)clearInterval(testTimer.current);
+    testTimer.current=undefined;
+    stopPreview();
+    setTesting(v=>!v);
   }
   async function exportWeapon() {
     try {
+      stopPreview();
       if (!files.current.view && !files.current.world)
         throw new Error("Load at least one weapon GLB.");
+      if(files.current.world&&!weaponSocket.current)throw new Error("Load a supported reference with a right-hand joint before exporting a third-person weapon.");
       if (!clean(id)) throw new Error("Enter a valid weapon ID.");
+      for(const view of ["first-person","third-person"] as const)for(const [action,binding] of Object.entries(animationMap[view])){
+        if(typeof binding!=="object")continue;
+        const source=importedGroups.current[view].find(g=>g.name===binding.clip);
+        if(!source||!Number.isFinite(binding.from)||!Number.isFinite(binding.to)||binding.from<source.from||binding.to>source.to||binding.to<binding.from)
+          throw Error(`${view} ${action}: range must fit inside its source timeline.`);
+      }
       setExporting(true);
       for (const [finger, node] of fingerNodes.current) {
+        if(isArmJoint(finger))continue;
         const q =
           node.rotationQuaternion ??
           Quaternion.FromEulerAngles(
@@ -898,7 +1106,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         slot,
         assets: {
           view: files.current.view ? "view.glb" : undefined,
-          character: files.current.character ? "character.glb" : undefined,
+          character: includeReference && !sharedReference.current && files.current.character ? "character.glb" : undefined,
           world: files.current.world ? "world.glb" : undefined,
           shotSound: files.current.shotSound
             ? `shot.${files.current.shotSound.name.split(".").pop() ?? "ogg"}`
@@ -934,6 +1142,9 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
           previewFov,
         },
         thirdPerson: {
+          space: "socket",
+          characterId: "swat",
+          holding:{...holding,supportHand:{...holding.supportHand,target:roots.current["tp-support"]?readTransform(roots.current["tp-support"]):holding.supportHand.target}},
           character: thirdPose.current?.character ?? (roots.current["tp-character"]
             ? readTransform(roots.current["tp-character"])
             : identity()),
@@ -942,7 +1153,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
             : identity()),
           fingers: Object.fromEntries(
             Object.entries(pose.current)
-              .filter(([key]) => key.startsWith("tp:"))
+              .filter(([key]) => key.startsWith("tp:") && !isArmJoint(key))
               .map(([key, value]) => [key.slice(3), value]),
           ),
           animations: animationMap["third-person"],
@@ -951,7 +1162,8 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       const zip = new JSZip(),
         folder = zip.folder(slot)!.folder(weaponId)!;
       folder.file("weapon.json", JSON.stringify(manifest, null, 2));
-      for (const [key, file] of Object.entries(files.current))
+      for (const [key, file] of Object.entries(files.current)) {
+        if(key==="character"&&(!includeReference||sharedReference.current))continue;
         folder.file(
           key === "shotSound"
             ? `shot.${file.name.split(".").pop() ?? "ogg"}`
@@ -960,6 +1172,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
               : `${key === "view" ? "view" : key === "world" ? "world" : key}.glb`,
           await file.arrayBuffer(),
         );
+      }
       folder.file(
         "INSTALL.txt",
         `Copy the ${slot}/${weaponId} folder into client/public/weapons/${slot}/${weaponId}, then restart the server.`,
@@ -1014,17 +1227,17 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       <h2>Animation connector</h2>
       <p>
         Map animation clips embedded in this GLB to the actions used by the
-        game.
+        game. Select one source per action, or split a combined timeline using Start / End frames (Babylon imported frame numbers).
       </p>
       {!clips[targetMode].length && (
         <p className="warning">Load the model to inspect its animations.</p>
       )}
       {(["idle", "draw", "fire", "reload"] as AnimationAction[]).map(
         (action) => (
-          <label key={action} className="animation-map-row">
+          <div key={action} className="animation-map-row">
             <span>{action.toUpperCase()}</span>
             <select
-              value={animationMap[targetMode][action] ?? BUILTIN_ANIMATION}
+              value={typeof animationMap[targetMode][action]==="object" ? (animationMap[targetMode][action] as Exclude<AnimationBinding,string>).clip : animationMap[targetMode][action] as string ?? BUILTIN_ANIMATION}
               onChange={(event) =>
                 setAnimationMap((value) => ({
                   ...value,
@@ -1038,19 +1251,31 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
               <option value={BUILTIN_ANIMATION}>
                 COLLATERAL BUILT-IN · {animationLabels[action]}
               </option>
+              <option value={NO_ANIMATION}>NONE · no animation</option>
               {clips[targetMode].map((clip) => (
                 <option key={clip} value={clip}>
                   MODEL CLIP · {clip}
                 </option>
               ))}
             </select>
+            {typeof animationMap[targetMode][action]==="object" && (["from","to","speed"] as const).map(field=> {
+              const binding=animationMap[targetMode][action] as Exclude<AnimationBinding,string>;
+              return number(field==="speed"?"Speed":field==="from"?"Start frame":"End frame",binding[field]??1,v=>setAnimationMap(m=>({...m,[targetMode]:{...m[targetMode],[action]:{...binding,[field]:v}}})),field==="speed"?.05:1);
+            })}
+            <button type="button" onClick={()=>{
+              const binding=animationMap[targetMode][action];
+              if(typeof binding==="object")return setAnimationMap(m=>({...m,[targetMode]:{...m[targetMode],[action]:binding.clip}}));
+              const group=importedGroups.current[targetMode].find(g=>g.name===binding);
+              if(!group)return setStatus("Choose a model clip first, then define its frame range.");
+              setAnimationMap(m=>({...m,[targetMode]:{...m[targetMode],[action]:{clip:group.name,from:group.from,to:group.to,speed:1}}}));
+            }}>{typeof animationMap[targetMode][action]==="object"?"USE FULL CLIP":"SET FRAME RANGE"}</button>
             <button
               type="button"
               onClick={() => previewAnimation(action, targetMode)}
             >
               ▶ PLAY
             </button>
-          </label>
+          </div>
         ),
       )}
     </section>
@@ -1076,7 +1301,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       </header>
       <aside>
         <nav className="framer-tabs" aria-label="Framer panels">
-          {["models", "poses", "animations", "rules", "audio", "effects"].map((tab) => (
+          {["models", "poses", "holding", "save", "animations", "rules", "audio", "effects"].map((tab) => (
             <button key={tab} className={panel === tab ? "selected" : ""} onClick={() => setPanel(tab)}>{tab.toUpperCase()}</button>
           ))}
         </nav>
@@ -1115,7 +1340,8 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         {mode === "first-person" && (
           <section hidden={panel !== "poses" && panel !== "models"}>
             <h2>2 · First person</h2>
-            {fileInput("view", "Combined arms + weapon GLB")}
+            {panel==="models" && fileInput("view", "Combined arms + weapon GLB")}
+            <div hidden={panel!=="poses"}>
             <p>
               The camera is the player's fixed eye position. Move the combined
               model into the viewport.
@@ -1123,10 +1349,6 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
             <button onClick={frameFirstPersonModel}>
               AUTO-FRAME IN VIEWPORT
             </button>
-            <div className="row">
-              <button onClick={captureHip}>CAPTURE HIP</button>
-              <button onClick={captureAds}>CAPTURE ADS</button>
-            </div>
             <div className="row">
               <button
                 className={!aiming ? "selected" : ""}
@@ -1149,40 +1371,51 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
               1,
               60,
             )}
+            </div>
           </section>
         )}
+        <section hidden={panel!=="save"}>
+          <h2>Save · {mode==="first-person"?"First person":"Third person"}</h2>
+          <p>Capture adjusted values before export. Export also reads live transforms, but these buttons create explicit restore points.</p>
+          {mode==="first-person"?<>
+            <button onClick={()=>captureHip()}>CAPTURE HIP POSE</button>
+            <button onClick={()=>captureAds()}>CAPTURE ADS POSE</button>
+            <button onClick={()=>{captureFingerPose("first-person");setStatus("Captured first-person finger pose.");}}>CAPTURE FINGER POSE</button>
+            <button onClick={()=>{const marker=roots.current["fp-muzzle"];if(!marker)return setStatus("Load a first-person muzzle first.");setEffects(v=>({...v,muzzle:{...v.muzzle,firstPerson:readTransform(marker)}}));setStatus("Captured first-person muzzle placement.");}}>CAPTURE MUZZLE PLACEMENT</button>
+            <button className="capture-all" onClick={captureAll}>CAPTURE ALL CURRENT FIRST-PERSON VALUES</button>
+            <p className="warning">Capture All stores whichever baseline is visible now: HIP or ADS. Toggle the other view and capture it separately after changing it.</p>
+          </>:<>
+            <button onClick={()=>captureThirdPerson()}>CAPTURE ATTACHMENT + HOLDING POSE</button>
+            <button onClick={()=>{captureArms();captureFingerPose("third-person");}}>CAPTURE ARM + FINGER POSE</button>
+            <button onClick={()=>{const marker=roots.current["tp-muzzle"];if(!marker)return setStatus("Load a third-person muzzle first.");setEffects(v=>({...v,muzzle:{...v.muzzle,thirdPerson:readTransform(marker)}}));setStatus("Captured third-person muzzle placement.");}}>CAPTURE MUZZLE PLACEMENT</button>
+            <button onClick={()=>{const saved=thirdPose.current;if(!saved)return setStatus("Capture a third-person pose first.");if(roots.current["tp-gun"])applyTransform(roots.current["tp-gun"],saved.weapon);if(roots.current["tp-character"])applyTransform(roots.current["tp-character"],saved.character);setStatus("Restored captured third-person attachment.");}}>RESTORE CAPTURED ATTACHMENT</button>
+            <button className="capture-all" onClick={captureAll}>CAPTURE ALL THIRD-PERSON VALUES</button>
+          </>}
+        </section>
         {mode === "first-person" && animationConnector("first-person")}
         {mode === "third-person" && (
           <section hidden={panel !== "poses" && panel !== "models"}>
             <h2>3 · Third person</h2>
-            {fileInput("character", "Optional reference character GLB")}
+            <div hidden={panel!=="models"}>
+            <p>Reference only: use the same rig and idle pose as the match character. Importing a different reference does not replace the in-game player.</p>
+            <button onClick={()=>void loadDefaultCharacter()}>LOAD GAME SWAT REFERENCE</button>
+            {fileInput("character", "Custom reference character GLB (preview only)")}
+            <label className="check"><input type="checkbox" checked={includeReference} onChange={e=>setIncludeReference(e.target.checked)}/>Include custom reference in ZIP for editing (shared SWAT is never duplicated)</label>
             {fileInput("world", "World weapon GLB")}
-            <div className="row">
-              <button onClick={() => {
-                const gun = roots.current["tp-gun"], character = roots.current["tp-character"];
-                if (!gun) return setStatus("Load the third-person weapon first.");
-                if (!window.confirm("Capture this third-person character and weapon pose for export?")) return;
-                thirdPose.current = { weapon: readTransform(gun), character: character ? readTransform(character) : identity() };
-                setStatus("Third-person pose captured for export.");
-              }}>CAPTURE THIRD-PERSON POSE</button>
-              <button onClick={() => {
-                const saved = thirdPose.current;
-                if (!saved) return setStatus("Capture a third-person pose first.");
-                if (roots.current["tp-gun"]) applyTransform(roots.current["tp-gun"], saved.weapon);
-                if (roots.current["tp-character"]) applyTransform(roots.current["tp-character"], saved.character);
-                setStatus("Restored captured third-person pose.");
-              }}>RESTORE POSE</button>
+            </div>
+            <div hidden={panel!=="poses"}>
+<p>Adjust the attachment here. Capture and restore controls are grouped in Save.</p>
             </div>
           </section>
         )}
         {mode === "third-person" && animationConnector("third-person")}
-        <section hidden={panel !== "poses"}>
-          <h2>4 · Selection</h2>
+        <section hidden={panel !== "poses" && panel !== "effects"}>
+          <h2>{panel === "effects" ? "Muzzle placement" : "Weapon alignment"}</h2>
           <p>
             <strong>FRONT = +Z</strong> · Blue arrow points toward the muzzle
             and firing direction.
           </p>
-          <div className="row">
+          <div className="row" hidden={panel !== "poses"}>
             <button
               onClick={() => {
                 const k = mode === "first-person" ? "fp-gun" : "tp-character";
@@ -1216,6 +1449,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
             ))}
           </div>
           <button onClick={resetSelected}>RESET SELECTED AXES</button>
+          <div hidden={panel !== "effects"}>
           <button
             onClick={() => {
               const key = mode === "first-person" ? "fp-muzzle" : "tp-muzzle";
@@ -1225,15 +1459,45 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
           >
             SELECT MUZZLE SOCKET
           </button>
+          <label>Muzzle follows
+            <select value={effects.muzzleNode?.[mode==="first-person"?"firstPerson":"thirdPerson"]??""} onChange={e=>{
+              const prefix=mode==="first-person"?"fp":"tp",key=mode==="first-person"?"firstPerson":"thirdPerson",
+                root=roots.current[prefix+"-gun"],marker=roots.current[prefix+"-muzzle"];
+              if(!root||!marker)return;
+              const name=e.target.value;
+              marker.setParent(name?root.getChildTransformNodes(false).find(n=>n.name===name)??root:root);
+              setEffects(v=>({...v,muzzleNode:{...v.muzzleNode,[key]:name||undefined},muzzle:{...v.muzzle,[key]:readTransform(marker)}}));
+            }}>
+              <option value="">Weapon root</option>
+              {(roots.current[mode==="first-person"?"fp-gun":"tp-gun"]?.getChildTransformNodes(false)??[]).filter(n=>!n.name.includes("muzzle")).map(n=><option key={n.uniqueId} value={n.name}>{n.name}</option>)}
+            </select>
+          </label>
           <button onClick={autoPlaceMuzzle}>
             AUTO-PLACE MUZZLE AT +Z FRONT
           </button>
+          </div>
         </section>
+        {mode==="third-person"&&<section hidden={panel!=="holding"}>
+          <h2>Weapon holding pose · SWAT</h2>
+          <p>The gun is attached to the right hand. Pose the arms and move the green target to where the left hand should grip this weapon. This only changes third person.</p>
+          <label>Starting stance<select value={holding.preset} onChange={e=>chooseHoldingPreset(e.target.value as HoldingPose["preset"])}>
+            <option value="pistol">Pistol · authored stance</option><option value="rifle">Rifle · compact starter</option><option value="custom">Custom</option>
+          </select></label>
+          <button onClick={()=>{if(holdingPreview)pauseHoldingForEdit();else {resetReferenceBase();setHoldingPreview(true);}}}>{holdingPreview?"PAUSE GRIP PREVIEW TO POSE JOINTS":"PREVIEW SAVED GRIP"}</button>
+
+          <label className="check"><input type="checkbox" checked={holding.supportHand.enabled} onChange={e=>setHolding(h=>({...h,supportHand:{...h.supportHand,enabled:e.target.checked}}))}/>Left hand follows support target (IK)</label>
+          <label className="check"><input type="checkbox" checked={holding.supportHand.orient} onChange={e=>setHolding(h=>({...h,supportHand:{...h.supportHand,orient:e.target.checked}}))}/>Use target rotation for wrist</label>
+          <button onClick={()=>{const marker=ensureSupportMarker();if(roots.current["tp-gun"]&&!marker.parent)marker.parent=roots.current["tp-gun"];setSelected("tp-support");attach("tp-support");}}>MOVE / ROTATE SUPPORT HAND TARGET</button>
+          <button onClick={()=>placeSupportAtHand()}>SNAP TARGET TO CURRENT LEFT HAND</button>
+          <div className="tool-switch">{(["move","rotate"] as TransformTool[]).map(t=><button key={t} className={transformTool===t?"selected":""} onClick={()=>setTransformTool(t)}>{t.toUpperCase()}</button>)}</div>
+          <button onClick={()=>{resetReferenceBase();setHolding(h=>({...h,preset:"pistol",arms:{},supportHand:{...h.supportHand,enabled:false}}));setHoldingPreview(true);}}>RESET HOLD TO AUTHORED PISTOL</button>
+          <p>Arm overrides and support IK release during reload and death. Targets outside arm reach are clamped; the skeleton is never stretched.</p>
+        </section>}
         {fingers.length > 0 && (
-          <section hidden={panel !== "poses"}>
-            <h2>5 · Finger pose</h2>
+          <section hidden={panel !== "poses" && panel !== "holding"}>
+            <h2>Arm and finger joints</h2>
             <p>
-              Select a skinned finger joint, then use the rotation rings. Poses
+              Select an arm or finger joint, then use the rotation rings. Save arm changes in the Holding tab. Finger poses
               export by bone name.
             </p>
             {!fingers.length && (
@@ -1274,6 +1538,21 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         )}
         <section hidden={panel !== "rules"}>
           <h2>6 · Ballistics</h2>
+          <label>
+            Fire mode
+            <select
+              aria-label="Fire mode"
+              value={gameplay.fireMode ?? "semi"}
+              onChange={(event) => setGameplay((current) => ({
+                ...current,
+                fireMode: event.target.value === "auto" ? "auto" : "semi",
+              }))}
+            >
+              <option value="semi">Semi automatic · one shot per press</option>
+              <option value="auto">Automatic · hold to fire</option>
+            </select>
+          </label>
+          <p>Automatic fire repeats while the trigger is held, at the Fire rate (RPM) below.</p>
           <p>
             Magazine and reserve belong to this weapon package and remain
             independent when players switch guns.
@@ -1518,9 +1797,16 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         <footer>{status}</footer>
       </aside>
       <main>
-        <canvas ref={canvas} />
+        <canvas ref={canvas} onPointerDown={e=>{
+          if(!testing||e.button!==0)return;
+          testShot();
+          if(gameplay.fireMode==="auto"){
+            if(testTimer.current)clearInterval(testTimer.current);
+            testTimer.current=window.setInterval(()=>latestTestShot.current(),Math.max(60,60000/gameplay.rpm));
+          }
+        }} />
         {mode === "first-person" && (
-          <div className="viewport-guide">
+          <div className={`viewport-guide ${livePreview&&!testing?"live-camera-guide":""}`}>
             <span>PLAYER VIEWPORT · {previewFov}° HORIZONTAL FOV</span>
             <i>FRONT +Z →</i>
           </div>
@@ -1543,6 +1829,8 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
           </button>
         </div>
         <div className="preview-controls">
+          {mode==="first-person" && <button onClick={()=>setLivePreview(v=>!v)}>{livePreview?"HIDE LIVE CAMERA":"SHOW LIVE CAMERA"}</button>}
+          <button onClick={testShot}>FIRE ONCE</button>
           <button onClick={toggleTest}>
             {testing ? "■ STOP TEST" : "▶ PLAY TEST"}
           </button>
@@ -1555,7 +1843,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         </div>
         <div className="help">
           {testing && mode === "first-person"
-            ? "PLAYER CAMERA PREVIEW · SHOTS ORIGINATE AT THE MUZZLE SOCKET"
+            ? "PLAYER CAMERA PREVIEW · CLICK TO FIRE · HOLD FOR AUTOMATIC"
             : "EDIT VIEW · SELECT AN OBJECT, THEN DRAG ITS AXIS GIZMO"}
         </div>
       </main>

@@ -83,6 +83,17 @@ export function loadSettings(): Settings {
     return structuredClone(defaults);
   }
 }
+export function ensureWeaponSelections(s:Settings,weapons:Array<{id:string;slot:"primary"|"secondary"}>){
+  let changed=false;
+  for(const slot of ["primary","secondary"] as const){
+    const available=weapons.filter(w=>w.slot===slot);
+    if(available.length && !available.some(w=>w.id===s[slot])){
+      s[slot]=available[0].id;changed=true;
+    }
+    if(!available.length && s[slot]){s[slot]="";changed=true;}
+  }
+  return changed;
+}
 export function saveSettings(s: Settings) {
   localStorage.setItem("collateral.settings", JSON.stringify(s));
 }

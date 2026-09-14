@@ -1,4 +1,4 @@
-import {capsuleOverlapsMap,resolveMap} from './geometry.js';
+import {capsuleOverlapsMap,resolveMap,floorHeight} from './geometry.js';
 import { RULES } from './rules.js';
 import type { Box,GameMap } from './maps.js';
 import type { Input } from './protocol.js';
@@ -30,8 +30,30 @@ export function moveBody(b:Body,input:Input,dt:number,map:GameMap){
   if(input.jump&&!b.lastJump&&b.grounded){b.vy=RULES.jumpSpeed;b.grounded=false;}b.lastJump=input.jump;
   b.vy-=RULES.gravity*dt;
   if(map.triangles){
-    const steps=Math.max(1,Math.ceil(Math.hypot(b.vx,b.vy,b.vz)*dt/0.08));b.grounded=false;
-    for(let i=0;i<steps;i++){b.x+=b.vx*dt/steps;b.y+=b.vy*dt/steps;b.z+=b.vz*dt/steps;resolveMap(b,b.crouch?RULES.crouchHeight:RULES.height,map);}
+    const start={...b},canStep=b.grounded&&!input.jump,height=b.crouch?RULES.crouchHeight:RULES.height;
+    const steps=Math.max(1,Math.ceil(Math.hypot(b.vx,b.vy,b.vz)*dt/0.04));b.grounded=false;
+    for(let i=0;i<steps;i++){b.x+=b.vx*dt/steps;b.y+=b.vy*dt/steps;b.z+=b.vz*dt/steps;resolveMap(b,height,map);}
+    const desired=Math.hypot(start.vx,start.vz)*dt;
+    if(canStep && desired>1e-6) {
+      const candidate={...start,x:start.x+start.vx*dt,z:start.z+start.vz*dt};
+      const floor=floorHeight(candidate,map,.3,.01);
+      if(floor>start.y+.005 && floor<=start.y+.3 &&
+         Math.hypot(b.x-start.x,b.z-start.z)<desired*.98) {
+        // Sweep up and forward at clearance height. Never teleport through a low ceiling.
+        const rise=floor-start.y+.012;
+        let clear=true;
+        for(let t=0;t<=1.001;t+=.125)
+          if(capsuleOverlapsMap({...start,y:start.y+rise*t},height,map,.002))clear=false;
+        for(let t=0;t<=1.001;t+=.125)
+          if(capsuleOverlapsMap({x:start.x+start.vx*dt*t,y:start.y+rise,z:start.z+start.vz*dt*t},height,map,.002))clear=false;
+        if(clear)Object.assign(b,{x:candidate.x,y:floor+.001,z:candidate.z,vx:start.vx,vz:start.vz,vy:0,grounded:true});
+      }
+      const below=floorHeight(b,map,.01,.3);
+      if(b.vy<=0 && below<=b.y+.01 && below>=b.y-.3 &&
+        !capsuleOverlapsMap({...b,y:below+.001},height,map,.002)){
+        b.y=below+.001;b.vy=0;b.grounded=true;
+      }
+    }
     return;
   }
   for(const [axis,v]of [['x','vx'],['z','vz']] as const){const old=b[axis];b[axis]+=b[v]*dt;if(map.walls.some(w=>intersects(b,w))){b[axis]=old;b[v]=0;}}

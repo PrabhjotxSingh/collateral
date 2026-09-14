@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import type {AnimationGroup} from '@babylonjs/core';
-import {drawPose,DRAW_SECONDS,findClip} from '../client/src/animation.js';
+import {ClipPlayer,drawPose,DRAW_SECONDS,findClip} from '../client/src/animation.js';
 
 test('draw settles in 0.55 seconds and clamps outside its duration',()=>{
   assert.deepEqual(drawPose(-1),drawPose(0));
@@ -23,4 +23,14 @@ test('named animation aliases do not play an arbitrary showcase timeline',()=>{
   assert.equal(findClip(groups,'draw'),groups[0]);
   assert.equal(findClip(groups,'reload'),groups[1]);
   assert.equal(findClip(groups,'idle'),undefined);
+});
+
+test("an interrupted transient can reset to idle immediately",()=>{
+  let active=false,frame=-1,weight=0;
+  const idle={name:"idle",from:10,to:20,targetedAnimations:[{animation:{framePerSecond:60,enableBlending:false}}],start(){active=true},stop(){active=false},pause(){},goToFrame(v:number){frame=v},setWeightForAllAnimatables(v:number){weight=v}} as unknown as AnimationGroup;
+  const reload={name:"reload",from:30,to:60,targetedAnimations:[{animation:{framePerSecond:60,enableBlending:false}}],start(){active=true},stop(){active=false},pause(){},goToFrame(){},setWeightForAllAnimatables(){}} as unknown as AnimationGroup;
+  const player=new ClipPlayer([idle,reload]);
+  assert.equal(player.play("reload",false),true);
+  assert.equal(player.resetToIdle(),true);
+  assert.equal(active,true);assert.equal(frame,10);assert.equal(weight,1);
 });

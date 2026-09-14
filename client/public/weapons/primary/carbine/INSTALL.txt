@@ -1,0 +1,1 @@
+Copy the primary/carbine folder into client/public/weapons/primary/carbine, then restart the server.

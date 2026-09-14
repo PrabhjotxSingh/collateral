@@ -8,6 +8,12 @@ export interface FrameTransform {
   roll: number;
   scale: number;
 }
+export type JointPose = Record<string,{x:number;y:number;z:number;w:number}>;
+export interface HoldingPose {
+  preset: "pistol" | "rifle" | "custom";
+  arms: JointPose;
+  supportHand: { enabled: boolean; target: FrameTransform; orient: boolean };
+}
 export interface WeaponManifest {
   version: 1;
   id: string;
@@ -27,6 +33,7 @@ export interface WeaponManifest {
     headshotMultiplier: number;
     range: number;
     rpm: number;
+    fireMode?: "semi" | "auto";
     magazine: number;
     reserve: number;
     reloadSeconds: number;
@@ -35,6 +42,8 @@ export interface WeaponManifest {
   };
   effects: {
     muzzle: { firstPerson: FrameTransform; thirdPerson: FrameTransform };
+    /** Optional animated model node; offsets are local to this node, otherwise the weapon root. */
+    muzzleNode?: { firstPerson?: string; thirdPerson?: string };
     flash: { color: string; size: number; intensity: number; duration: number };
     tracer: {
       color: string;
@@ -51,18 +60,29 @@ export interface WeaponManifest {
     ads: FrameTransform;
     adsFov: number;
     fingers: Record<string, { x: number; y: number; z: number; w: number }>;
-    animations?: Partial<Record<WeaponAnimationAction, string>>;
+    animations?: Partial<Record<WeaponAnimationAction, AnimationBinding>>;
     /** True when transforms were authored camera-relative in Collateral Engine. */
     editorFramed?: boolean;
     /** Editor preview FOV; informative only, player settings remain authoritative. */
     previewFov?: number;
   };
   thirdPerson: {
+    /** Shared runtime rig. Reference GLBs are optional editor-only data. */
+    characterId?: "swat";
+    holding?: HoldingPose;
+    /** Pose relative to the normalized reference, converted once at the hand. */
+    space?: "character" | "socket";
     character: FrameTransform;
     weapon: FrameTransform;
     fingers?: Record<string, { x: number; y: number; z: number; w: number }>;
-    animations?: Partial<Record<WeaponAnimationAction, string>>;
+    animations?: Partial<Record<WeaponAnimationAction, AnimationBinding>>;
   };
+}
+export type AnimationBinding = string | { clip: string; from: number; to: number; speed?: number };
+export const PROCEDURAL_ANIMATION = "@collateral-built-in";
+export const NO_ANIMATION = "@collateral-none";
+export function usesProcedural(binding: AnimationBinding | undefined, hasClip = false) {
+  return binding === PROCEDURAL_ANIMATION || (binding === undefined && !hasClip);
 }
 export type WeaponAnimationAction =
   | "idle"
@@ -84,6 +104,7 @@ export const DEFAULT_WEAPON_GAMEPLAY: WeaponManifest["gameplay"] = {
   headshotMultiplier: 3,
   range: 80,
   rpm: 480,
+  fireMode: "semi",
   magazine: 17,
   reserve: 51,
   reloadSeconds: 1.7,

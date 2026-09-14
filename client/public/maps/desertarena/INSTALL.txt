@@ -1,0 +1,2 @@
+Copy this entire folder into client/public/maps, then restart the Collateral server.
+project.json is the editable source — reopen it from the map engine's IMPORT MAP button to keep editing this map.

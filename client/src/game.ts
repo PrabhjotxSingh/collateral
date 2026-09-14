@@ -1,3 +1,5 @@
+import { blendFrame } from "../../shared/weapon-transforms";
+import { usesProcedural } from "../../shared/weapons";
 import { DevTools } from "./dev-tools";
 import { daylight } from "./lighting";
 import {
@@ -227,6 +229,13 @@ export class Game {
         Math.min(1.5, this.pitch + e.movementY * factor),
       );
     });
+    this.scene.onAfterAnimationsObservable.add(()=>{
+      for(const [id,actor]of this.actorAssets){
+        const p=this.state?.players[id];
+        actor.holdingRig?.apply(actor.holding,actor.worldWeapon?.root,!!p&&p.health>0&&!p.reloading);
+        if(p&&p.health>0&&!p.reloading)for(const [node,q]of actor.handPose??[])node.rotationQuaternion=q;
+      }
+    });
     this.engine.runRenderLoop(() => {
       this.frame(Math.min(this.engine.getDeltaTime() / 1000, 0.05));
       this.scene.render();
@@ -263,6 +272,7 @@ export class Game {
     const id = slot === 1 ? this.settings.primary : this.settings.secondary;
     if (!id) return;
     const path = `${slot === 1 ? "primary" : "secondary"}/${id}`;
+    if (!this.network.weapons.some((weapon) => weapon.path === path)) return;
     if (path === this.currentWeapon || path === this.queuedWeapon) return;
     this.queuedWeapon = path;
     this.switchElapsed = 0.5;
@@ -276,6 +286,7 @@ export class Game {
       this.weaponManifests.set(path, manifest);
       this.currentManifest = manifest;
       void this.audio.weapon(path, manifest);
+      this.weapon?.clips.resetToIdle();
       this.weapon?.dispose();
       this.weapon = undefined;
       this.gun.isVisible = true;
@@ -292,23 +303,29 @@ export class Game {
       console.warn("Weapon package unavailable", error);
     }
   }
+  private actorWeaponRequests = new Map<string,{actor:AssetInstance,path:string}>();
   private async changeActorWeapon(id: string, path: string) {
     const actor = this.actorAssets.get(id);
     if (!actor || this.actorWeapons.get(id) === path) return;
+    const pending=this.actorWeaponRequests.get(id);
+    if(pending?.actor===actor&&pending.path===path)return;
+    const request={actor,path};this.actorWeaponRequests.set(id,request);
     try {
       const manifest = await this.network.weapon(path);
       this.weaponManifests.set(path, manifest);
       void this.audio.weapon(path, manifest);
-      if (this.actorAssets.get(id) !== actor) return;
-      await this.assets.worldWeapon(manifest, actor);
-      this.actorWeapons.set(id, path);
+      if (this.actorAssets.get(id) !== actor || this.actorWeaponRequests.get(id)!==request) return;
+      const world=await this.assets.worldWeapon(manifest, actor);
+      if(world){world.clips.play("draw",false,DRAW_SECONDS);world.weaponAction={action:"draw",elapsed:0,duration:DRAW_SECONDS};}
+      if(this.actorWeaponRequests.get(id)===request)this.actorWeapons.set(id, path);
     } catch (error) {
       console.warn("World weapon package unavailable", error);
-    }
+    } finally {if(this.actorWeaponRequests.get(id)===request)this.actorWeaponRequests.delete(id);}
   }
   private tryFire() {
     const me = this.state?.players[this.network.match?.sessionId ?? ""];
-    if (!this.fireRequested || !me) return;
+    const auto=this.currentManifest?.gameplay.fireMode === "auto" && this.held("fire");
+    if ((!this.fireRequested && !auto) || !me) return;
     if (me.sprint || this.lastSprintPose > 0.02) return;
     this.fireRequested = false;
     if (
@@ -317,7 +334,7 @@ export class Game {
       this.state?.phase !== "live" ||
       me.health <= 0 ||
       me.reloading ||
-      this.drawElapsed < DRAW_SECONDS
+      this.drawElapsed < DRAW_SECONDS || this.switchElapsed > 0
     )
       return;
     const shotId = this.prediction.request(
@@ -332,7 +349,7 @@ export class Game {
   private localShot() {
     this.dev.shotStarted();
     this.audio.play("shot", undefined, 1, this.currentWeapon);
-    this.motion.fire();
+    if (usesProcedural(this.currentManifest?.firstPerson.animations?.fire, !!this.weapon?.clips.has("fire"))) this.motion.fire();
     const shotSeconds = 60 / (this.currentManifest?.gameplay.rpm ?? 480);
     this.weapon?.clips.play("fire", false, shotSeconds);
     this.shotAnimRemaining = shotSeconds;
@@ -591,6 +608,7 @@ export class Game {
     }
   }
   private frame(dt: number) {
+    for(const actor of this.actorAssets.values())actor.holdingRig?.restore();
     this.dev.tick(this.active ? this.state : undefined);
     if (!this.state || !this.active) {
       this.gun.setEnabled(false);
@@ -608,7 +626,6 @@ export class Game {
       }
       if (this.switchElapsed === 0) {
         this.queuedWeapon = "";
-        this.beginDraw();
       }
     }
     const wasDrawing = this.drawElapsed < DRAW_SECONDS;
@@ -736,11 +753,11 @@ export class Game {
         const enteredCrouch = p.crouch && !this.crouchedActors.has(id);
         if (p.crouch) this.crouchedActors.add(id);
         else this.crouchedActors.delete(id);
-        actor?.clips.play(action);
-        if (enteredCrouch) actor?.clips.tick(0.08);
+        actor?.clips.play(action, true, undefined, enteredCrouch);
         if (p.reloading) {
           if (!this.actorReloading.has(id)) {
             this.actorReloading.add(id);
+            if(actor?.worldWeapon){const w=actor.worldWeapon,duration=this.weaponManifests.get(p.weapon)?.gameplay.reloadSeconds??RULES.reloadSeconds;w.clips.play("reload",false,duration);w.weaponAction={action:"reload",elapsed:0,duration};}
             actor?.combat?.play(
               "reload",
               false,
@@ -764,8 +781,24 @@ export class Game {
       if (moving && !dead) actor?.clips.phase((phase / 2) % 1);
       actor?.clips.tick(dt);
       actor?.combat?.tick(dt);
-      for (const [node, rotation] of actor?.handPose ?? [])
-        node.rotationQuaternion = rotation;
+      const world=actor?.worldWeapon;
+      if(world){
+        world.clips.tick(dt);
+        const a=world.weaponAction;
+        if(a){
+          a.elapsed+=dt;
+          const binding=this.weaponManifests.get(p.weapon)?.thirdPerson.animations?.[a.action];
+          world.root.position.setAll(0);world.root.rotation.setAll(0);
+          if(!dead && usesProcedural(binding,world.clips.has(a.action))){
+            const t=Math.min(1,a.elapsed/a.duration),wave=Math.sin(Math.PI*t);
+            if(a.action==="draw"){const d=drawPose(a.elapsed);world.root.position.set(d.x,d.y,d.z);world.root.rotation.set(d.pitch,0,d.roll);}
+            if(a.action==="fire"){world.root.position.z=-.024*wave;world.root.rotation.x=-.037*wave;}
+            if(a.action==="reload")world.root.rotation.x=-.65*wave;
+          }
+          if(dead||a.elapsed>=a.duration){world.weaponAction=undefined;world.root.position.setAll(0);world.root.rotation.setAll(0);world.clips.play("idle");}
+        }
+      }
+
       const h = p.crouch ? RULES.crouchHeight : RULES.height;
       // Crouch is skeletal; do not squash the soldier's entire body.
       const scale = actor ? 1 : h / RULES.height;
@@ -791,6 +824,7 @@ export class Game {
         reloading: me.reloading,
         stepPhase: me.stepPhase ?? 0,
         lookActive: this.locked,
+        proceduralIdle: usesProcedural(this.currentManifest?.firstPerson.animations?.idle, !!this.weapon?.clips.has("idle")),
       },
       dt,
     );
@@ -806,25 +840,14 @@ export class Game {
       const hip = this.currentManifest.firstPerson.weapon,
         ads = this.currentManifest.firstPerson.ads,
         t = motion.ads,
-        ease = t * t * (3 - 2 * t);
-      this.weapon.root.position.set(
-        hip.x + (ads.x - hip.x) * ease,
-        hip.y + (ads.y - hip.y) * ease,
-        hip.z + (ads.z - hip.z) * ease,
-      );
-      this.weapon.root.rotation.set(
-        ((hip.pitch + (ads.pitch - hip.pitch) * ease) * Math.PI) / 180,
-        ((hip.yaw + (ads.yaw - hip.yaw) * ease) * Math.PI) / 180,
-        ((hip.roll + (ads.roll - hip.roll) * ease) * Math.PI) / 180,
-      );
-      this.weapon.root.scaling.setAll(
-        hip.scale + (ads.scale - hip.scale) * ease,
-      );
+        ease = t;
+      blendFrame(this.weapon.root, hip, ads, ease);
     }
-    const pose = drawPose(this.bakedDraw ? DRAW_SECONDS : this.drawElapsed);
+    const proceduralDraw=usesProcedural(this.currentManifest?.firstPerson.animations?.draw, this.bakedDraw);
+    const pose = drawPose(proceduralDraw ? this.drawElapsed : DRAW_SECONDS);
     const switchDrop =
-      this.switchElapsed > 0
-        ? Math.sin((this.switchElapsed / 0.5) * Math.PI) * 0.38
+      this.switchElapsed > 0.25
+        ? (1 - (this.switchElapsed - 0.25) / 0.25) * 0.38
         : 0;
     this.gun.setEnabled(me.health > 0);
     this.gun.position.set(
@@ -835,7 +858,7 @@ export class Game {
     this.gun.rotation.set(
       motion.pitch +
         pose.pitch +
-        (me.reloading && !this.weapon?.clips.has("reload") ? -0.65 : 0),
+        (me.reloading && usesProcedural(this.currentManifest?.firstPerson.animations?.reload, !!this.weapon?.clips.has("reload")) ? -0.65 : 0),
       motion.yaw,
       motion.roll + pose.roll,
     );
@@ -877,6 +900,7 @@ export class Game {
       this.audio.play("shot", shot, 1, shot.weapon);
       this.effects.muzzle(muzzle, origin, false, manifest?.effects);
       actor?.combat?.play("fire", false, 60 / (manifest?.gameplay.rpm ?? 480));
+      if(actor?.worldWeapon){const w=actor.worldWeapon,duration=60/(manifest?.gameplay.rpm??480);w.clips.play("fire",false,duration);w.weaponAction={action:"fire",elapsed:0,duration};}
     }
     const me = this.state?.players[this.network.match?.sessionId ?? ""];
     if (!local && me && shot.targetId === me.id) {
@@ -967,6 +991,7 @@ export class Game {
     this.actorDead.clear();
     this.actorReloading.clear();
     this.actorWeapons.clear();
+    this.actorWeaponRequests.clear();
     this.crouchedActors.clear();
     for (const tag of this.nameTags.values()) tag.remove();
     this.nameTags.clear();

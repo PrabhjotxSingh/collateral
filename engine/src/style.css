@@ -179,7 +179,7 @@ body {
   margin: 10px 0;
 }
 .framer-tabs { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; position:sticky; top:-18px; background:var(--panel); padding:12px 0; z-index:3; }
-.framer aside section[hidden] { display:none; }
+.framer [hidden] { display:none; }
 .color-field {
   display: grid;
   grid-template-columns: 48px 1fr;
@@ -497,3 +497,17 @@ canvas {
     font-size: 10px;
   }
 }
+
+/* A persistent 16:9 player preview beside the orbit editor. */
+.framer main { container-type: size; }
+.viewport-guide.live-camera-guide { inset: auto 0 auto auto; width:min(44cqw,133.333cqh); height:auto; aspect-ratio:16/9; top:50%; transform:translateY(-50%); box-shadow:none; }
+.framer aside section > button { display:block; width:100%; margin:6px 0; text-align:left; }
+.framer .row { flex-wrap:wrap; }
+.framer .row > button { min-width:120px; }
+.animation-map-row { grid-template-columns:1fr 1fr; padding:12px; margin:10px 0; border:1px solid var(--line); background:#10191e; }
+.animation-map-row > select { grid-column:1/-1; }
+.animation-map-row > button { height:auto; min-height:36px; }
+.framer .preview-controls { display:flex; flex-wrap:wrap; gap:6px; }
+.framer .framer-tabs { position:sticky; top:-18px; z-index:4; background:var(--panel); padding:10px 0; }
+
+.capture-all { margin-top:14px !important; border-color:#d6a45d !important; color:#ffd08c !important; background:#211a10 !important; font-weight:700; }

@@ -73,7 +73,7 @@ test('runtime instancing hides the block and installs walk clips on independent 
     assert.ok(a&&b);assert.ok(a.clips.has('walk')&&b.clips.has('walk'));
     const one=findClip(a.clips.groups,'walk')!,two=findClip(b.clips.groups,'walk')!;
     assert.notEqual(one.targetedAnimations[0].target,two.targetedAnimations[0].target);
-    const block=new Mesh('glock-placeholder',scene);const w=await assets.instance('glock',block,block,{weapon:true});
+    const block=new Mesh('glock-placeholder',scene);const w=await assets.instance('/assets/weapons/glock.glb',block,block,{weapon:true});
     assert.ok(w?.clips.has('fire')&&w.clips.has('reload')&&w.clips.has('idle'));
     assert.equal(block.isVisible,false);assert.ok(block.getChildMeshes().some(m=>m.getTotalVertices()>1000&&m.isEnabled()&&m.isVisible));
     first.dispose();second.dispose();block.dispose();

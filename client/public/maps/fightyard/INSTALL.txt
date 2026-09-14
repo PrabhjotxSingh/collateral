@@ -1,0 +1,1 @@
+Copy this entire folder into client/public/maps, then restart the Collateral server.

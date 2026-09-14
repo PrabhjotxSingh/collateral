@@ -11,8 +11,10 @@ test("cached maps re-acknowledge host readiness and clear the waiting overlay", 
 });
 test("framer separates panels and exports the captured third-person pose", () => {
   const source = readFileSync("engine/src/WeaponFramer.tsx", "utf8");
-  assert.match(source, /CAPTURE THIRD-PERSON POSE/);
+  assert.match(source, /CAPTURE ATTACHMENT \+ HOLDING POSE/);
+  assert.match(source, /CAPTURE ALL THIRD-PERSON VALUES/);
+  assert.match(source, /CAPTURE ALL CURRENT FIRST-PERSON VALUES/);
   assert.match(source, /thirdPose.current\?\.weapon/);
-  for (const tab of ["models", "poses", "animations", "rules", "audio", "effects"])
-    assert.ok(source.includes('panel !== "' + tab + '"'));
+  for (const tab of ["models", "poses", "holding", "save", "animations", "rules", "audio", "effects"])
+    assert.ok(source.includes(`"${tab}"`), `missing ${tab} panel`);
 });

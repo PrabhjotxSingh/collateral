@@ -195,3 +195,40 @@ Magazine size and reserve ammunition are defined per weapon. During a round, the
 server stores ammunition independently for every weapon a player uses. The Loadout
 groups every discovered package by Primary or Secondary and allows one selection from
 each group; number keys and the mouse wheel switch between the equipped pair.
+
+## Framer and movement update
+
+- Third-person captured poses now declare their coordinate space. The game converts the reference-space pose into the hand socket once, rather than adding the character's height twice. Older editor-framed packages also migrate their saved reference's native scale. For a different/custom reference rig, import the package, load **GAME SWAT REFERENCE**, check the grip, capture the third-person pose and re-export.
+- The reference GLB is a preview resource. It does not replace the match character or retarget animations. Different rigs/grips need separate fitted weapon poses and matching character integration. Use the game's SWAT reference for this game's current player.
+- First-person editing has a persistent 16:9 live camera beside the orbit view. HIP and ADS use short-arc quaternion interpolation; capture reads quaternion gizmo rotations. Match the preview FOV with your game setting.
+- Animation connector: choose a model clip, a **Start / End frame** range within one combined timeline, **COLLATERAL BUILT-IN**, or **NONE**, separately for each action. Frame numbers are the imported Babylon timeline (which can differ from the source application's FPS). A missing explicitly selected clip does not silently enable a procedural animation. The original G17 now declares its Scene timeline ranges explicitly.
+- Ballistics includes **Semi automatic / Automatic**. Automatic repeats while the fire input is held; both obey the authoritative RPM, ammo and reload rules.
+- **Muzzle follows** can attach the marker to an animated weapon part. Position the marker at the barrel opening. Exported coordinates are local to that selected part, or the weapon root when no part is selected. The bundled G17's flash now follows its barrel instead of using the separate world-Glock offset.
+- The active loadout Glock comes from `client/public/weapons/secondary/glock`. The original `client/public/assets/weapons` files remain for legacy/fallback loading, including the initial third-person attachment. Editing those files alone does not update an installed weapon package. Keep both until legacy loading is retired.
+- Triangle-map movement supports steps up to 0.30 m and downward ground snapping, with swept clearance checks. Larger obstacles remain solid. Bad collision meshes still need correction in the map editor.
+
+Validation includes real SWAT hand-attachment matrices, quaternion ADS, combined animation ranges, stair ascent/descent, low ceilings and high risers. Browser visual and multiplayer feel checks remain necessary on your machine; the browser binary could not be downloaded in the build environment.
+
+## Per-weapon SWAT holding poses
+
+In the framer, load/import your weapon and choose **Third person → Holding**.
+
+1. Choose **Pistol**, **Rifle**, or **Custom**. Rifle is a compact starting stance, not an automatic fit for every model.
+2. Align the weapon using the Poses controls. It now follows the reference's right-hand socket while you pose the arm.
+3. Enable **Left hand follows support target**, select **MOVE / ROTATE SUPPORT HAND TARGET**, and move the green marker onto the foregrip. Enable **Use target rotation for wrist** if needed, then rotate the marker to orient the palm.
+4. Select shoulder, arm, forearm, hand, or finger joints in the joint list and use the rotation gizmo. Selecting a joint pauses the grip solver so it cannot fight your edits. **SAVE ARM POSE FOR THIS WEAPON** commits the arm rotations; **CAPTURE THIRD-PERSON POSE** also captures them.
+5. Preview the saved grip, capture the attachment, and export the package. Install it in the normal primary/secondary folder and restart the server.
+
+Each weapon stores its own arm rotations, finger rotations, starting stance, and weapon-local support target. Runtime applies the same support-arm solver after movement animations. The solver rotates existing bones, clamps unreachable targets, and releases arm/finger overrides for reload and death. The upper-body pose is intended for aiming; this is not an automatic retargeter or a complete authored reload animation.
+
+New exports identify the shared game character as `swat` and store a socket-local weapon transform. They do not duplicate the built-in SWAT GLB. Old packages still import their embedded references and are converted when re-exported. A custom preview GLB is included only if **Include custom reference in ZIP** is checked; it still does not replace the playable character. Use the same SWAT rig for reliable editor/game parity.
+
+Validation: builds and 47 tests passed, including real SWAT reach, unchanged bone lengths, repeated-frame stability, reload/death release, weapon-pose reset, and attachment parity. Browser visual playtesting remains pending.
+
+## Save workflow and switching
+
+The framer's **Save** tab collects all capture actions for the selected first- or third-person view. The first-person **Capture All** saves the currently visible HIP or ADS baseline, fingers and muzzle; switch to the other baseline and capture it separately after editing. Third-person **Capture All** saves the attachment, arm pose, fingers, support target and current muzzle placement.
+
+Switching weapons cancels an active reload on the authoritative server. The unfinished weapon keeps its exact magazine and reserve values, receives no ammunition when the old timer would have ended, and returns at its idle pose. The client also evaluates idle before removing an interrupted model. Entering crouch now applies the first crouch frame immediately to avoid a one-frame standing flash.
+
+When at least one primary package is installed, an empty or stale saved loadout automatically selects the first primary in deterministic folder order. The server also assigns an installed primary on join. If no primary exists, the normal secondary fallback remains available.

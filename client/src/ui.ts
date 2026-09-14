@@ -1,5 +1,5 @@
 import type { Network } from "./network";
-import { defaults, saveSettings, type Action, type Settings } from "./settings";
+import { defaults, ensureWeaponSelections, saveSettings, type Action, type Settings } from "./settings";
 import { NEWS } from "./news";
 import {
   ROUND_LIMITS,
@@ -73,6 +73,7 @@ export class UI {
       this.message((e as CustomEvent).detail),
     );
     net.addEventListener("identity", () => {
+      if(ensureWeaponSelections(this.settings,this.net.weapons))this.persist();
       this.authenticated = true;
       this.render();
     });

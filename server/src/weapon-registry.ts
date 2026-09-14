@@ -23,7 +23,7 @@ export function loadInstalledWeapons(root: string) {
     const slotRoot = resolve(root, slot);
     let ids: string[] = [];
     try {
-      ids = readdirSync(slotRoot);
+      ids = readdirSync(slotRoot).sort((a,b)=>a.localeCompare(b));
     } catch {
       continue;
     }
@@ -80,6 +80,7 @@ export function loadInstalledWeapons(root: string) {
         g.damage = number(g.damage, 34, 1, 500);
         g.headshotMultiplier = number(g.headshotMultiplier, 3, 1, 10);
         g.range = number(g.range, 80, 1, 500);
+        g.fireMode = g.fireMode === "auto" ? "auto" : "semi";
         g.rpm = number(g.rpm, 480, 30, 1800);
         g.magazine = Math.round(number(g.magazine, 17, 1, 500));
         g.reserve = Math.round(number(g.reserve, 51, 0, 2000));

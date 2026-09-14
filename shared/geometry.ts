@@ -52,3 +52,19 @@ export function resolveMap(b:V&{vx:number;vy:number;vz:number;grounded:boolean},
     b.x+=c.normal.x*(c.depth+1e-5);b.y+=c.normal.y*(c.depth+1e-5);b.z+=c.normal.z*(c.depth+1e-5);const into=b.vx*c.normal.x+b.vy*c.normal.y+b.vz*c.normal.z;if(into<0){b.vx-=c.normal.x*into;b.vy-=c.normal.y*into;b.vz-=c.normal.z*into;}if(c.normal.y>0.65)b.grounded=true;changed=true;
   }if(!changed)break;}
 }
+
+/** Highest walkable surface under the capsule footprint; vertical walls are excluded. */
+export function floorHeight(b:V,map:GameMap,up:number,down:number) {
+  let floor=-Infinity;
+  const r=RULES.radius*.8;
+  for(const [dx,dz] of [[0,0],[r,0],[-r,0],[0,r],[0,-r]]) {
+    const o={x:b.x+dx,y:b.y+up,z:b.z+dz};
+    for(const t of geometry(map).query(o.x,o.x,o.z,o.z)) {
+      const n=cross(sub(t.b,t.a),sub(t.c,t.a));
+      if(Math.abs(n.y)<Math.sqrt(dot(n,n))*.7)continue;
+      const d=rayTriangle(o,{x:0,y:-1,z:0},t,up+down);
+      if(Number.isFinite(d)) floor=Math.max(floor,o.y-d);
+    }
+  }
+  return floor;
+}

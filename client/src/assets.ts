@@ -1,3 +1,6 @@
+import { HoldingRig, createWeaponSocket } from "../../shared/holding-pose";
+import { fitCharacter, frameMatrix, applyMatrix } from "../../shared/weapon-transforms";
+export { fitCharacter } from "../../shared/weapon-transforms";
 import { applyGrip, storedGrip } from "./grip";
 import {
   Scene,
@@ -19,36 +22,22 @@ export interface AssetInstance {
   combat?: ClipPlayer;
   root: TransformNode;
   grip?: TransformNode;
+  gripBindMatrix?: Matrix;
+  referenceFit?: Matrix;
   muzzle?: TransformNode;
   worldWeapon?: AssetInstance;
+  weaponAction?: { action:"draw"|"fire"|"reload"; elapsed:number; duration:number };
   handPose?: Map<TransformNode, Quaternion>;
+  holdingRig?: HoldingRig;
+  holding?: WeaponManifest["thirdPerson"]["holding"];
   dispose: () => void;
 }
 // Run while detached from the moving player, so position/yaw/crouch cannot
 // contaminate the measured dimensions. Uniform scaling preserves proportions.
-export function fitCharacter(root: TransformNode, height: number) {
-  for (const mesh of root.getChildMeshes()) {
-    mesh.computeWorldMatrix(true);
-    if (mesh instanceof Mesh) {
-      mesh.skeleton?.prepare(true);
-      mesh.refreshBoundingInfo(true);
-    }
-  }
-  const { min, max } = root.getHierarchyBoundingVectors(true);
-  const size = max.y - min.y;
-  if (!Number.isFinite(size) || size <= 0)
-    throw new Error("Character has no valid bounds");
-  const scale = height / size;
-  root.scaling.setAll(scale);
-  root.position.set(
-    (-(min.x + max.x) * scale) / 2,
-    -min.y * scale,
-    (-(min.z + max.z) * scale) / 2,
-  );
-  return { scale, min: min.clone(), max: max.clone() };
-}
 export class Assets {
   private cache = new Map<string, Promise<AssetContainer | null>>();
+  private worldLoads = new WeakMap<AssetInstance,object>();
+  private referenceFits = new Map<string,Promise<Matrix | undefined>>();
   constructor(private scene: Scene) {}
   private frame(node: TransformNode, value: FrameTransform) {
     node.position.set(value.x, value.y, value.z);
@@ -110,10 +99,15 @@ export class Assets {
       )?.[1];
       if (value) node.rotationQuaternion = new Quaternion(value.x, value.y, value.z, value.w);
     }
-    const muzzle = new TransformNode(`${manifest.id}-view-muzzle`, this.scene);
-    muzzle.parent = weapon.root;
-    this.frame(muzzle, manifest.effects.muzzle.firstPerson);
-    weapon.muzzle = muzzle;
+    // The original G17 barrel moves inside its animation hierarchy. Its measured
+    // barrel tip is authoritative; the old generic world-gun offset was wrong here.
+    if(!weapon.muzzle || manifest.firstPerson.editorFramed || manifest.effects.muzzleNode?.firstPerson) {
+      weapon.muzzle?.dispose();
+      const muzzle = new TransformNode(`${manifest.id}-view-muzzle`, this.scene);
+      muzzle.parent = this.muzzleParent(weapon.root,manifest.effects.muzzleNode?.firstPerson);
+      this.frame(muzzle, manifest.effects.muzzle.firstPerson);
+      weapon.muzzle = muzzle;
+    }
     disposers.push(weapon);
     const original = weapon.dispose;
     weapon.dispose = () => {
@@ -124,21 +118,36 @@ export class Assets {
   }
   async worldWeapon(manifest: WeaponManifest, actor: AssetInstance) {
     if (!actor.grip || !manifest.assets.world) return null;
+    const request={};this.worldLoads.set(actor,request);
+    actor.worldWeapon?.clips.resetToIdle();
     actor.worldWeapon?.dispose();
-    this.frame(actor.grip, manifest.thirdPerson.weapon);
+    if (actor.gripBindMatrix && (manifest.thirdPerson.space === "character" ||
+        (!manifest.thirdPerson.space && manifest.firstPerson.editorFramed))) {
+      let desired=frameMatrix(manifest.thirdPerson.weapon).multiply(Matrix.Invert(frameMatrix(manifest.thirdPerson.character)));
+      // Older editor exports used the reference GLB's native units, before height normalization.
+      if(!manifest.thirdPerson.space && manifest.firstPerson.editorFramed){
+        const fit=manifest.assets.character ? await this.referenceNormalization(manifest.assets.character) : actor.referenceFit;
+        if(fit)desired=desired.multiply(fit);
+      }
+      if(actor.root.isDisposed()||this.worldLoads.get(actor)!==request)return null;
+      applyMatrix(actor.grip,desired.multiply(Matrix.Invert(actor.gripBindMatrix)));
+    } else this.frame(actor.grip, manifest.thirdPerson.weapon);
     const weapon = await this.instance(manifest.assets.world, actor.grip, undefined, {
       animationMap: manifest.thirdPerson.animations,
     });
+    if(this.worldLoads.get(actor)!==request||actor.root.isDisposed()){weapon?.dispose();return null;}
     actor.worldWeapon = weapon ?? undefined;
     if (weapon) {
       const muzzle = new TransformNode(
         `${manifest.id}-world-muzzle`,
         this.scene,
       );
-      muzzle.parent = weapon.root;
+      muzzle.parent = this.muzzleParent(weapon.root,manifest.effects.muzzleNode?.thirdPerson);
       this.frame(muzzle, manifest.effects.muzzle.thirdPerson);
       actor.muzzle = muzzle;
     }
+    actor.holdingRig?.restore();
+    actor.holding = manifest.thirdPerson.holding;
     actor.handPose = new Map();
     for (const [name, value] of Object.entries(
       manifest.thirdPerson.fingers ?? {},
@@ -153,6 +162,23 @@ export class Assets {
         );
     }
     return weapon;
+  }
+  private referenceNormalization(path:string){
+    if(!this.referenceFits.has(path))this.referenceFits.set(path,(async()=>{
+      const container=await this.load(path);if(!container)return undefined;
+      const instance=container.instantiateModelsToScene(n=>n,false,{doNotInstantiate:true});
+      instance.animationGroups.forEach((g,i)=>g.name=container.animationGroups[i].name);
+      const root=new TransformNode("reference-normalization",this.scene);
+      for(const node of instance.rootNodes)node.parent=root;
+      const clips=new ClipPlayer(instance.animationGroups);clips.play("idle");clips.tick(1);
+      for(const group of instance.animationGroups)if(group.isPlaying)group.goToFrame(group.from);
+      try{fitCharacter(root,1.8);return root.computeWorldMatrix(true).clone();}
+      finally{clips.dispose();instance.dispose();root.dispose();}
+    })());
+    return this.referenceFits.get(path)!;
+  }
+  private muzzleParent(root:TransformNode,name?:string){
+    return name ? root.getChildTransformNodes(false).find(n=>n.name===name||n.name.endsWith("-"+name)) ?? root : root;
   }
   load(path: string) {
     if (!this.cache.has(path))
@@ -196,7 +222,7 @@ export class Assets {
       weapon?: boolean;
       exactWeaponTransform?: boolean;
       menu?: boolean;
-      animationMap?: Partial<Record<import("./animation").ClipAction, string>>;
+      animationMap?: Partial<Record<import("./animation").ClipAction, import("../../shared/weapons").AnimationBinding>>;
     } = {},
   ): Promise<AssetInstance | null> {
     const container = await this.load(path);
@@ -213,7 +239,7 @@ export class Assets {
     for (const root of instance.rootNodes) root.parent = fitted;
     if (options.menu && instance.animationGroups[0])
       instance.animationGroups[0].name = "idle";
-    if (options.weapon && instance.animationGroups[0])
+    if (options.weapon && !options.animationMap && /(?:\/secondary\/glock\/view|\/assets\/weapons\/glock)\.glb$/.test(path) && instance.animationGroups[0])
       instance.animationGroups.push(
         ...createGlockClips(instance.animationGroups[0]),
       );
@@ -243,6 +269,7 @@ export class Assets {
       return null;
     }
     let grip: TransformNode | undefined;
+    let gripBindMatrix: Matrix | undefined;
     let muzzle: TransformNode | undefined;
     let combat: ClipPlayer | undefined;
     let worldWeapon: AssetInstance | undefined;
@@ -283,39 +310,11 @@ export class Assets {
       parent.onDisposeObservable.addOnce(() =>
         layers.forEach((g) => g.dispose()),
       );
-      const hand = fitted
-        .getChildTransformNodes()
-        .find((n) => n.name.endsWith("mixamorig:RightHand"));
-      if (hand) {
-        hand.computeWorldMatrix(true);
-        const socket = new TransformNode(
-          parent.name + "-weapon-socket",
-          this.scene,
-        );
-        const middle = fitted
-          .getChildTransformNodes()
-          .find((n) => n.name.endsWith("mixamorig:RightHandMiddle1"))!;
-        middle.computeWorldMatrix(true);
-        const position = Vector3.Lerp(
-          hand.getAbsolutePosition(),
-          middle.getAbsolutePosition(),
-          0.72,
-        ).add(new Vector3(0, -0.035, 0));
-        const desired = Matrix.Compose(
-            Vector3.One(),
-            Quaternion.Identity(),
-            position,
-          ),
-          local = desired.multiply(Matrix.Invert(hand.getWorldMatrix()));
-        socket.rotationQuaternion = Quaternion.Identity();
-        local.decompose(
-          socket.scaling,
-          socket.rotationQuaternion,
-          socket.position,
-        );
-        socket.parent = hand;
+      const socket = createWeaponSocket(fitted);
+      if (socket) {
         grip = new TransformNode(parent.name + "-grip-adjustment", this.scene);
         grip.parent = socket;
+        gripBindMatrix = socket.computeWorldMatrix(true).clone();
         applyGrip(grip, storedGrip());
         muzzle = new TransformNode(parent.name + "-muzzle", this.scene);
         muzzle.parent = grip;
@@ -330,16 +329,21 @@ export class Assets {
       fitted.dispose();
       return null;
     }
+    const referenceFit=fitted.computeWorldMatrix(true).clone();
     fitted.parent = parent;
     if (placeholder) placeholder.isVisible = false;
     let disposed = false;
     const dispose = () => {
       if (disposed) return;
       disposed = true;
+      clips.resetToIdle();
+      clips.dispose();
+      combat?.dispose();
+      worldWeapon?.dispose();
       instance.dispose();
       fitted.dispose();
     };
     parent.onDisposeObservable.addOnce(dispose);
-    return { clips, combat, root: fitted, grip, muzzle, worldWeapon, dispose };
+    return { clips, combat, root: fitted, grip, gripBindMatrix, referenceFit, muzzle, worldWeapon, holdingRig:options.characterHeight&&!options.menu?new HoldingRig(fitted):undefined, dispose };
   }
 }
