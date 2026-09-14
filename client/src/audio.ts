@@ -2,7 +2,7 @@ import { ASSETS } from "../../shared/maps.js";
 import type { Settings } from "./settings";
 import type { Vec } from "../../shared/simulation.js";
 import type { WeaponManifest } from "../../shared/weapons.js";
-type Cue = "shot" | "hit" | "step" | "reload";
+type Cue = "shot" | "hit" | "step" | "reload" | "empty";
 export class TacticalAudio {
   private context?: AudioContext;
   private output?: GainNode;
@@ -28,7 +28,7 @@ export class TacticalAudio {
   }
   private async load() {
     await Promise.all(
-      (["shot", "hit", "step", "reload"] as Cue[]).map(async (kind) => {
+      (["shot", "hit", "step", "reload", "empty"] as Cue[]).map(async (kind) => {
         try {
           const response = await fetch(ASSETS[kind]);
           if (
@@ -96,9 +96,12 @@ export class TacticalAudio {
       const p = ctx.createPanner();
       p.panningModel = "HRTF";
       p.distanceModel = "inverse";
-      p.refDistance = 2;
-      p.maxDistance = 35;
-      p.rolloffFactor = 1.5;
+      p.refDistance = kind === "shot" ? 3.5 : 1.5;
+      p.maxDistance = kind === "shot" ? 70 : 30;
+      p.rolloffFactor = kind === "shot" ? 1.15 : 1.7;
+      p.coneInnerAngle = 180;
+      p.coneOuterAngle = 270;
+      p.coneOuterGain = .45;
       p.positionX.value = position.x;
       p.positionY.value = position.y;
       p.positionZ.value = position.z;
@@ -121,7 +124,7 @@ export class TacticalAudio {
       source = ctx.createBufferSource();
       source.buffer = recorded;
       gain.gain.value =
-        (kind === "shot" ? 0.65 : kind === "hit" ? 0.5 : 0.4) * cueVolume;
+        (kind === "shot" ? 0.65 : kind === "hit" ? 0.5 : kind === "empty" ? .55 : 0.4) * cueVolume;
       source.connect(gain);
       source.start();
     } else {

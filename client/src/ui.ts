@@ -3,6 +3,8 @@ import { defaults, ensureWeaponSelections, saveSettings, type Action, type Setti
 import { NEWS } from "./news";
 import {
   ROUND_LIMITS,
+  DEATHMATCH_KILL_LIMITS,
+  DEATHMATCH_MINUTES,
   canStartMatch,
   winsRequired,
 } from "../../shared/rules.js";
@@ -51,6 +53,7 @@ export class UI {
   private recap?: DeathRecap;
   private damageAngle = 0;
   private damageUntil = 0;
+  private showScoreboard = false;
   constructor(
     private net: Network,
     private settings: Settings,
@@ -64,6 +67,9 @@ export class UI {
       const select = e.target as HTMLSelectElement;
       if ("mapSelection" in select.dataset)
         this.net.send("map-selection", select.value);
+      if("gameMode" in select.dataset)this.net.send("game-mode",select.value);
+      if("killLimit" in select.dataset)this.net.send("kill-limit",Number(select.value));
+      if("matchSeconds" in select.dataset)this.net.send("match-seconds",Number(select.value));
     });
     net.addEventListener("lobbies", () => {
       if (this.authenticated && !net.match && this.page === "play")
@@ -119,6 +125,9 @@ export class UI {
     window.addEventListener(
       "keydown",
       (e) => {
+        if(e.code==="Tab"&&this.net.state&&this.net.state.phase!=="waiting"){
+          e.preventDefault();this.showScoreboard=true;this.renderState();return;
+        }
         if (!this.binding) return;
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -131,6 +140,8 @@ export class UI {
       },
       true,
     );
+    window.addEventListener("keyup",e=>{if(e.code==="Tab"&&this.showScoreboard){this.showScoreboard=false;this.renderState();}});
+    window.addEventListener("blur",()=>{if(this.showScoreboard){this.showScoreboard=false;this.renderState();}});
     window.addEventListener(
       "mousedown",
       (e) => {
@@ -370,7 +381,7 @@ export class UI {
       })
       .join(
         "",
-      )}</div><div class="round-choice"><label><strong>MAP</strong><select data-map-selection ${!host ? "disabled" : ""}><option value="random" ${state.mapChoice === "random" ? "selected" : ""}>Random</option>${this.net.maps.map((map) => `<option value="${esc(map.id)}" ${state.mapChoice === map.id ? "selected" : ""}>${esc(map.name)}</option>`).join("")}</select></label><strong>MATCH LENGTH</strong>${ROUND_LIMITS.map((n) => `<button data-action="round-limit" data-value="${n}" class="${state.roundLimit === n ? "selected" : ""}" ${!host ? "disabled" : ""}>BEST OF ${n}</button>`).join("")}</div><div class="lobby-bottom"><div><strong>${state.mapChoice === "random" ? "RANDOM MAP" : esc(this.net.maps.find((m) => m.id === state.mapChoice)?.name ?? state.mapChoice)} · FIRST TO ${first}</strong><p>100-second rounds · Glock only · Best of ${state.roundLimit}</p></div><button class="primary" data-action="start" ${!host || !ready ? "disabled" : ""}>${host ? (ready ? "START MATCH" : "BALANCE TEAMS TO START") : "WAITING FOR HOST"}</button></div><p class="muted">Your callsign stays active in the menu. Sign out to release it.</p></div>`;
+      )}</div><div class="round-choice"><label><strong>MAP</strong><select data-map-selection ${!host ? "disabled" : ""}><option value="random" ${state.mapChoice === "random" ? "selected" : ""}>Random</option>${this.net.maps.map((map) => `<option value="${esc(map.id)}" ${state.mapChoice === map.id ? "selected" : ""}>${esc(map.name)}</option>`).join("")}</select></label><label><strong>MODE</strong><select data-game-mode ${!host?"disabled":""}><option value="elimination" ${state.gameMode==="elimination"?"selected":""}>Elimination</option><option value="deathmatch" ${state.gameMode==="deathmatch"?"selected":""}>Team Deathmatch</option></select></label>${state.gameMode==="deathmatch"?`<label><strong>KILL LIMIT</strong><select data-kill-limit ${!host?"disabled":""}>${DEATHMATCH_KILL_LIMITS.map(n=>`<option value="${n}" ${state.killLimit===n?"selected":""}>${n} kills</option>`).join("")}</select></label><label><strong>TIME LIMIT</strong><select data-match-seconds ${!host?"disabled":""}>${DEATHMATCH_MINUTES.map(n=>`<option value="${n*60}" ${state.matchSeconds===n*60?"selected":""}>${n} minutes</option>`).join("")}</select></label>`:`<strong>MATCH LENGTH</strong>${ROUND_LIMITS.map((n) => `<button data-action="round-limit" data-value="${n}" class="${state.roundLimit === n ? "selected" : ""}" ${!host ? "disabled" : ""}>BEST OF ${n}</button>`).join("")}`}</div><div class="lobby-bottom"><div><strong>${state.mapChoice === "random" ? "RANDOM MAP" : esc(this.net.maps.find((m) => m.id === state.mapChoice)?.name ?? state.mapChoice)} · ${state.gameMode==="deathmatch"?`FIRST TO ${state.killLimit} KILLS`: `FIRST TO ${first}`}</strong><p>${state.gameMode==="deathmatch"?`${state.matchSeconds/60}-minute team deathmatch · Respawns enabled`:`100-second rounds · Best of ${state.roundLimit}`}</p></div><button class="primary" data-action="start" ${!host || !ready ? "disabled" : ""}>${host ? (ready ? "START MATCH" : "BALANCE TEAMS TO START") : "WAITING FOR HOST"}</button></div><p class="muted">Your callsign stays active in the menu. Sign out to release it.</p></div>`;
   }
   private settingsContent() {
     return `<header class="page-heading"><p class="eyebrow">MAKE IT YOURS</p><h1>Settings.</h1><p>Adjust the settings for your play style. Ctrl and Command are reserved by the browser.</p></header><div class="settings-grid"><section class="panel"><h2>Aim & audio</h2>${(
@@ -411,6 +422,9 @@ export class UI {
       host: s.hostId,
       roundLimit: s.roundLimit,
       mapChoice: s.mapChoice,
+      gameMode: s.gameMode,
+      killLimit: s.killLimit,
+      matchSeconds: s.matchSeconds,
       winner: s.winner,
       reason: s.reason,
     });
@@ -450,7 +464,8 @@ export class UI {
     );
     const weaponName = equipped?.name ?? me.weapon.split("/").pop() ?? "Weapon";
     const weaponSlot = equipped?.slot === "primary" ? "1" : "2";
-    this.hud.innerHTML = `<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>ROUND ${s.round}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : `ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>Round ${s.round}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}` : "ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : esc(equipped?.name ?? me.weapon.split("/").at(-1) ?? "WEAPON")}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">ESC · Release mouse</div>`;
+    const board=this.showScoreboard?`<div class="tab-scoreboard"><header><span>PLAYER</span><span>KILLS</span><span>DEATHS</span><span>STATUS</span></header>${(["A","B"] as const).map(team=>`<section class="tab-team team-${team}"><h3>TEAM ${team}</h3>${Object.values(s.players).filter(p=>p.team===team).map(p=>`<div><strong>${esc(p.username)}${p.id===me.id?' <small>YOU</small>':''}</strong><b>${p.kills}</b><b>${p.deaths}</b><span>${p.connected?(p.health>0?`${p.health} HP`:"DEAD"):"DISCONNECTED"}</span></div>`).join("")}</section>`).join("")}</div>`:"";
+    this.hud.innerHTML = `<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>${s.gameMode==="deathmatch"?"DEATHMATCH":`ROUND ${s.round}`}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : s.gameMode==="deathmatch"?`FIRST TO ${s.killLimit}`:`ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${board}${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>${s.gameMode==="deathmatch"?"Deathmatch":`Round ${s.round}`}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}` : s.gameMode==="deathmatch"?"RESPAWNING…":"ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : esc(equipped?.name ?? me.weapon.split("/").at(-1) ?? "WEAPON")}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">TAB · Scoreboard&nbsp;&nbsp; ESC · Release mouse</div>`;
     this.hud.innerHTML = this.hud.innerHTML.replace("GLOCK", esc(weaponName));
     this.hud.insertAdjacentHTML(
       "beforeend",

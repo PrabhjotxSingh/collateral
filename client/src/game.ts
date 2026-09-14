@@ -98,6 +98,9 @@ export class Game {
   private queuedWeapon = "";
   private switchElapsed = 0;
   private switchLoaded = false;
+  private weaponLoadGeneration = 0;
+  private emptyClickAt = -Infinity;
+  private devCamera={enabled:false,distance:3.2,height:.65};
   constructor(
     private canvas: HTMLCanvasElement,
     private network: Network,
@@ -181,6 +184,7 @@ export class Game {
       this.audio.play("reload", detail, 1, weapon);
     });
     window.addEventListener("resize", () => this.engine.resize());
+    window.addEventListener("dev-third-person",e=>{this.devCamera={...(e as CustomEvent<typeof this.devCamera>).detail};});
     window.addEventListener("keydown", (e) => {
       if (e.code === "F2" && this.dev.available) return;
       if (!this.locked) return;
@@ -281,17 +285,23 @@ export class Game {
     this.network.send("weapon", path);
   }
   private async changeWeapon(path: string) {
+    const generation=++this.weaponLoadGeneration;
+    this.gun.setEnabled(false);
+    this.reloadWasActive=false;this.shotAnimRemaining=0;this.bakedDraw=false;
+    this.weapon?.clips.resetToIdle();
+    this.weapon?.dispose();this.weapon=undefined;
+    this.gun.position.setAll(0);this.gun.rotation.setAll(0);this.gun.scaling.setAll(1);
     try {
       const manifest = await this.network.weapon(path);
+      if(generation!==this.weaponLoadGeneration)return;
       this.weaponManifests.set(path, manifest);
       this.currentManifest = manifest;
       void this.audio.weapon(path, manifest);
-      this.weapon?.clips.resetToIdle();
-      this.weapon?.dispose();
-      this.weapon = undefined;
       this.gun.isVisible = true;
       const loaded = await this.assets.viewWeapon(manifest, this.gun, this.gun);
+      if(generation!==this.weaponLoadGeneration){loaded?.dispose();return;}
       this.weapon = loaded ?? undefined;
+      this.weapon?.clips.settleIdle();
       this.currentWeapon = path;
       window.dispatchEvent(
         new CustomEvent("weapon-changed", {
@@ -337,6 +347,11 @@ export class Game {
       this.drawElapsed < DRAW_SECONDS || this.switchElapsed > 0
     )
       return;
+    if(me.ammo<=0){
+      const cadence=60/(this.currentManifest?.gameplay.rpm??480),now=performance.now()/1000;
+      if(now-this.emptyClickAt>=cadence){this.emptyClickAt=now;this.audio.play("empty");}
+      return;
+    }
     const shotId = this.prediction.request(
       performance.now(),
       me.ammo,
@@ -373,6 +388,8 @@ export class Game {
     this.motion.reset();
     this.cancelSprint = false;
     this.drawElapsed = 0;
+    this.reloadWasActive=false;this.shotAnimRemaining=0;
+    this.weapon?.clips.settleIdle();
     this.bakedDraw =
       this.weapon?.clips.play("draw", false, DRAW_SECONDS) ?? false;
   }
@@ -684,14 +701,16 @@ export class Game {
     this.kick *= Math.exp(-12 * dt);
     this.damageShake *= Math.exp(-10 * dt);
     if (target) {
-      this.camera.position = Vector3.Lerp(
-        this.camera.position,
-        new Vector3(
-          target.x,
-          target.y + (target.crouch ? RULES.crouchEyeHeight : RULES.eyeHeight),
-          target.z,
-        ),
-        1 - Math.exp(-18 * dt),
+      const eye=new Vector3(target.x,target.y+(target.crouch?RULES.crouchEyeHeight:RULES.eyeHeight),target.z),third=this.dev.available&&this.devCamera.enabled;
+      const desired=third?eye.add(new Vector3(-Math.sin(this.yaw)*this.devCamera.distance,this.devCamera.height,-Math.cos(this.yaw)*this.devCamera.distance)):eye;
+      // Horizontal tracking stays responsive while grounded vertical changes
+      // use a softer visual follow, hiding discrete network stair risers without
+      // changing the authoritative capsule or allowing clients through walls.
+      const horizontal=1-Math.exp(-22*dt),vertical=1-Math.exp(-(target.grounded?10:18)*dt);
+      this.camera.position.set(
+        this.camera.position.x+(desired.x-this.camera.position.x)*horizontal,
+        this.camera.position.y+(desired.y-this.camera.position.y)*vertical,
+        this.camera.position.z+(desired.z-this.camera.position.z)*horizontal,
       );
       const local = target.id === me.id;
       this.camera.rotation.set(
@@ -706,6 +725,7 @@ export class Game {
           : target.yaw,
         0,
       );
+      if(third)this.camera.setTarget(eye);
     }
     this.audio.listener(
       this.camera.position,
@@ -849,7 +869,7 @@ export class Game {
       this.switchElapsed > 0.25
         ? (1 - (this.switchElapsed - 0.25) / 0.25) * 0.38
         : 0;
-    this.gun.setEnabled(me.health > 0);
+    this.gun.setEnabled(me.health > 0 && !!this.weapon && !(this.dev.available&&this.devCamera.enabled));
     this.gun.position.set(
       motion.x - 0.18 * (1 - motion.ads) + pose.x,
       motion.y - (-0.17 + 0.051 * motion.ads) + pose.y - switchDrop,

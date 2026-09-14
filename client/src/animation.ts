@@ -29,22 +29,49 @@ export class ClipPlayer {
   dispose(){this.stop();for(const group of this.ranged.values())group.dispose();this.ranged.clear();}
   phase(value:number){if(this.current){this.current.pause();this.current.goToFrame(this.current.from+(this.current.to-this.current.from)*value);}}
   has(action:ClipAction){return !!this.clip(action);}
-  stop(){this.current?.stop();this.previous?.stop();this.current=undefined;this.previous=undefined;}
+  private stopAll(){
+    const all=new Set([...this.groups,...this.ranged.values()]);
+    for(const group of all){group.stop();group.setWeightForAllAnimatables(0);}
+    this.current=undefined;this.previous=undefined;this.blend=1;
+  }
+  stop(){this.stopAll();}
+  /**
+   * Finds a stable authored frame even when Idle is procedural. Combined
+   * weapon timelines normally start each mapped action from the held pose;
+   * the earliest mapped frame is therefore the deterministic neutral pose.
+   */
+  private baseline(){
+    const idle=this.clip("idle");
+    if(idle)return {group:idle,frame:idle.from,loop:true};
+    const mapped=(['draw','fire','reload'] as ClipAction[]).map(action=>this.mapping[action]).filter((binding):binding is AnimationBinding&object=>typeof binding==='object').sort((a,b)=>a.from-b.from)[0];
+    const source=mapped&&this.groups.find(group=>group.name===mapped.clip);
+    if(source)return {group:source,frame:mapped.from,loop:false};
+    const only=this.groups.length===1?this.groups[0]:undefined;
+    return only?{group:only,frame:only.from,loop:false}:undefined;
+  }
+  private enterBaseline(live:boolean){
+    this.stopAll();
+    const base=this.baseline();if(!base)return false;
+    base.group.start(live&&base.loop,1,base.frame,base.loop?base.group.to:base.frame);
+    base.group.setWeightForAllAnimatables(1);base.group.goToFrame(base.frame);
+    if(!base.loop)base.group.pause();
+    this.current=base.group;this.blend=1;return true;
+  }
   /** Stop transient tracks and evaluate the authored idle/bind pose before hiding or disposing. */
   resetToIdle(){
-    this.stop();
-    const idle=this.clip("idle");
-    if(!idle)return false;
-    idle.start(true,1,idle.from,idle.to);
-    idle.setWeightForAllAnimatables(1);
-    idle.goToFrame(idle.from);
-    idle.pause();
-    this.current=idle;this.blend=1;
-    return true;
+    return this.enterBaseline(false);
+  }
+  /** Enter a clean, live idle loop without blending from a frozen transient pose. */
+  settleIdle(){
+    return this.enterBaseline(true);
   }
   speed(ratio:number){if(this.current)this.current.speedRatio=Math.max(0.3,Math.min(2.6,ratio));}
   play(action:ClipAction,loop=true,duration?:number,immediate=false){
-    const clip=this.clip(action);if(!clip){if(action==="idle")this.stop();return false;}
+    if(action==="idle"){
+      const idle=this.clip("idle");
+      return idle&&this.current===idle&&loop?true:this.settleIdle();
+    }
+    const clip=this.clip(action);if(!clip)return false;
     if(this.current===clip){if(loop)return true;clip.stop();this.current=undefined;}
     this.previous?.stop();this.previous=this.current;this.current=clip;this.blend=immediate?1:0;this.blendDuration=action==='fire'?.025:.12;
     const fps=clip.targetedAnimations[0]?.animation.framePerSecond??60;

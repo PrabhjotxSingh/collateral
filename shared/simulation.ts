@@ -31,13 +31,29 @@ export function moveBody(b:Body,input:Input,dt:number,map:GameMap){
   b.vy-=RULES.gravity*dt;
   if(map.triangles){
     const start={...b},canStep=b.grounded&&!input.jump,height=b.crouch?RULES.crouchHeight:RULES.height;
+    // Resolve a walkable riser before the generic collision sweep. The old
+    // collide-then-correct path could alternate between the vertical face and
+    // the tread, producing the familiar stop/pop/stick behavior on stairs.
+    if(canStep&&Math.hypot(b.vx,b.vz)>1e-5){
+      const next={...start,x:start.x+b.vx*dt,z:start.z+b.vz*dt},floor=floorHeight(next,map,RULES.stepHeight,.015),rise=floor-start.y;
+      if(rise>.004&&rise<=RULES.stepHeight){
+        const elevated={...next,y:floor+.002};let clear=true;
+        for(let i=1;i<=8&&clear;i++){
+          const t=i/8,probe={...start,x:start.x+(next.x-start.x)*t,y:start.y+rise*t+.002,z:start.z+(next.z-start.z)*t};
+          if(capsuleOverlapsMap(probe,height,map,.0015))clear=false;
+        }
+        if(clear&&!capsuleOverlapsMap(elevated,height,map,.0015)){
+          b.x=next.x;b.y=floor+.002;b.z=next.z;b.vy=0;b.grounded=true;return;
+        }
+      }
+    }
     const steps=Math.max(1,Math.ceil(Math.hypot(b.vx,b.vy,b.vz)*dt/0.04));b.grounded=false;
     for(let i=0;i<steps;i++){b.x+=b.vx*dt/steps;b.y+=b.vy*dt/steps;b.z+=b.vz*dt/steps;resolveMap(b,height,map);}
     const desired=Math.hypot(start.vx,start.vz)*dt;
     if(canStep && desired>1e-6) {
       const candidate={...start,x:start.x+start.vx*dt,z:start.z+start.vz*dt};
-      const floor=floorHeight(candidate,map,.3,.01);
-      if(floor>start.y+.005 && floor<=start.y+.3 &&
+      const floor=floorHeight(candidate,map,RULES.stepHeight,.01);
+      if(floor>start.y+.005 && floor<=start.y+RULES.stepHeight &&
          Math.hypot(b.x-start.x,b.z-start.z)<desired*.98) {
         // Sweep up and forward at clearance height. Never teleport through a low ceiling.
         const rise=floor-start.y+.012;
@@ -48,8 +64,8 @@ export function moveBody(b:Body,input:Input,dt:number,map:GameMap){
           if(capsuleOverlapsMap({x:start.x+start.vx*dt*t,y:start.y+rise,z:start.z+start.vz*dt*t},height,map,.002))clear=false;
         if(clear)Object.assign(b,{x:candidate.x,y:floor+.001,z:candidate.z,vx:start.vx,vz:start.vz,vy:0,grounded:true});
       }
-      const below=floorHeight(b,map,.01,.3);
-      if(b.vy<=0 && below<=b.y+.01 && below>=b.y-.3 &&
+      const below=floorHeight(b,map,.015,RULES.groundSnap);
+      if(b.vy<=0 && below<=b.y+.015 && below>=b.y-RULES.groundSnap &&
         !capsuleOverlapsMap({...b,y:below+.001},height,map,.002)){
         b.y=below+.001;b.vy=0;b.grounded=true;
       }

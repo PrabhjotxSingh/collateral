@@ -117,6 +117,10 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     [includeReference,setIncludeReference]=useState(false),
     [panel, setPanel] = useState("models"),
     [transformTool, setTransformTool] = useState<TransformTool>("move"),
+    [positionStep,setPositionStep]=useState(.001),
+    [rotationStep,setRotationStep]=useState(.1),
+    [scaleStep,setScaleStep]=useState(.001),
+    [snapEnabled,setSnapEnabled]=useState(true),
     [selected, setSelected] = useState("fp-gun"),
     [name, setName] = useState("Glock"),
     [id, setId] = useState("glock"),
@@ -300,6 +304,12 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       playerCamera.current.fov = (previewFov * Math.PI) / 180;
   }, [previewFov]);
   useEffect(() => attach(), [transformTool]);
+  useEffect(()=>{
+    const gm=gizmo.current;if(!gm)return;
+    if(gm.gizmos.positionGizmo)gm.gizmos.positionGizmo.snapDistance=snapEnabled?positionStep:0;
+    if(gm.gizmos.rotationGizmo)gm.gizmos.rotationGizmo.snapDistance=snapEnabled?rotationStep*Math.PI/180:0;
+    if(gm.gizmos.scaleGizmo)gm.gizmos.scaleGizmo.snapDistance=snapEnabled?scaleStep:0;
+  },[positionStep,rotationStep,scaleStep,snapEnabled,transformTool]);
   useEffect(() => {
     const s=scene.current,cam=camera.current,pov=playerCamera.current;
     if(!s||!cam||!pov)return;
@@ -603,6 +613,14 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       if (n) applyTransform(n, identity());
     }
     attach();
+  }
+  function nudgeSelected(field:"x"|"y"|"z"|"pitch"|"yaw"|"roll"|"scale",amount:number){
+    const key=selectedRef.current,n=key.startsWith("finger:")?fingerNodes.current.get(key.slice(7)):roots.current[key];
+    if(!n)return setStatus("Select a model, muzzle, support target or joint first.");
+    const value=readTransform(n);
+    value[field]=field==="scale"?Math.max(.001,value[field]+amount):value[field]+amount;
+    applyTransform(n,value);attach();
+    setStatus(`Nudged ${key} ${field} to ${value[field].toFixed(field==="scale"?4:field==="x"||field==="y"||field==="z"?4:2)}.`);
   }
   function frameFirstPersonModel() {
     const root = roots.current["fp-gun"];
@@ -1447,6 +1465,21 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
                 {tool.toUpperCase()}
               </button>
             ))}
+          </div>
+          <div className="precision-controls">
+            <h3>PRECISION ALIGNMENT</h3>
+            <p>Selected: <strong>{selected}</strong>. Snap affects the gizmo; nudge buttons move by exactly the values below.</p>
+            <label className="check"><input type="checkbox" checked={snapEnabled} onChange={e=>setSnapEnabled(e.target.checked)}/>Snap transform gizmos</label>
+            <div className="precision-steps">
+              <label>Position step (m)<input type="number" min="0.0001" max="0.1" step="0.0001" value={positionStep} onChange={e=>setPositionStep(Math.max(.0001,e.target.valueAsNumber||.001))}/></label>
+              <label>Rotation step (°)<input type="number" min="0.01" max="15" step="0.01" value={rotationStep} onChange={e=>setRotationStep(Math.max(.01,e.target.valueAsNumber||.1))}/></label>
+              <label>Scale step<input type="number" min="0.0001" max="0.1" step="0.0001" value={scaleStep} onChange={e=>setScaleStep(Math.max(.0001,e.target.valueAsNumber||.001))}/></label>
+            </div>
+            <div className="nudge-grid">
+              {(["x","y","z"] as const).flatMap(axis=>[<button key={axis+"-"} onClick={()=>nudgeSelected(axis,-positionStep)}>{axis.toUpperCase()} −</button>,<button key={axis+"+"} onClick={()=>nudgeSelected(axis,positionStep)}>{axis.toUpperCase()} +</button>])}
+              {(["pitch","yaw","roll"] as const).flatMap(axis=>[<button key={axis+"-"} onClick={()=>nudgeSelected(axis,-rotationStep)}>{axis.toUpperCase()} −</button>,<button key={axis+"+"} onClick={()=>nudgeSelected(axis,rotationStep)}>{axis.toUpperCase()} +</button>])}
+              <button onClick={()=>nudgeSelected("scale",-scaleStep)}>SCALE −</button><button onClick={()=>nudgeSelected("scale",scaleStep)}>SCALE +</button>
+            </div>
           </div>
           <button onClick={resetSelected}>RESET SELECTED AXES</button>
           <div hidden={panel !== "effects"}>

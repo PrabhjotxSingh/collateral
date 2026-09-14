@@ -232,3 +232,26 @@ The framer's **Save** tab collects all capture actions for the selected first- o
 Switching weapons cancels an active reload on the authoritative server. The unfinished weapon keeps its exact magazine and reserve values, receives no ammunition when the old timer would have ended, and returns at its idle pose. The client also evaluates idle before removing an interrupted model. Entering crouch now applies the first crouch frame immediately to avoid a one-frame standing flash.
 
 When at least one primary package is installed, an empty or stale saved loadout automatically selects the first primary in deterministic folder order. The server also assigns an installed primary on join. If no primary exists, the normal secondary fallback remains available.
+
+## v2.4 gameplay and rendering
+
+- Hold **Tab** during a match for the player scoreboard.
+- Hosts can choose **Elimination** or **Team Deathmatch**. Deathmatch supports 10/20/30/50-kill targets, 5/10/15/20-minute clocks and three-second respawns.
+- Empty magazines use `client/public/assets/sounds/empty-clip.mp3`; the click respects the current weapon's configured fire cadence.
+- Remote shots, reloads and footsteps use distance attenuation and HRTF directional panning. Local weapon feedback remains immediate.
+- Bullet impacts remain visible for roughly twelve seconds and darken the sampled rendered-surface color.
+- The F2 panel now provides a session-only third-person camera and live FPS/frame-time readout.
+- Viewmodel loads are generation guarded: stale asynchronous loads are discarded, transient tracks stop, and the selected weapon restarts from idle before draw/ADS.
+- Stair handling supports taller ordinary risers with stronger downward ground snapping. Shadows use higher-quality filtering, with restrained motion blur and tighter contact occlusion.
+
+Diagonal ground shading on imported maps normally comes from split normals or triangulation in the source GLB, then becomes more visible under screen-space occlusion. This build reduces that amplification. Persistent lines should be repaired in the source map by merging coplanar vertices and exporting consistent smooth/flat normals.
+
+### v2.4.1 corrections
+
+Weapons whose Idle/Draw/Fire behavior is procedural can still contain a single combined model timeline for reload. The runtime now derives a deterministic neutral frame from the earliest mapped authored action, stops every original and cloned animation group, evaluates that baseline, and only then draws, switches, returns from reload/fire, or blends ADS. This prevents a weapon from inheriting a paused reload keyframe when no separate model Idle clip exists.
+
+Triangle-map stair traversal now clears an ordinary riser before the generic collision sweep. This avoids repeatedly colliding with the vertical stair face and correcting upward afterward. Grounded camera height uses a separate softened vertical follow so collision stays authoritative while the view appears continuous.
+
+The hold-Tab scoreboard includes synchronized kills and deaths. Lobby rendering now watches game mode, deathmatch kill limit and match clock, so those controls update immediately.
+
+The framer's Poses and Effects panels include **Precision Alignment**. Set position, rotation and scale increments, optionally snap the gizmos to those increments, or use the X/Y/Z, Pitch/Yaw/Roll and Scale nudge buttons for exact adjustments. A 0.001 m position step equals one millimetre; reduce it to 0.0001 m for final ADS sight alignment.

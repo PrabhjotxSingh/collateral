@@ -9,6 +9,8 @@ import {
   ROUND_LIMITS,
   canStartMatch,
   type Team,
+  DEATHMATCH_KILL_LIMITS,
+  DEATHMATCH_MINUTES,
 } from "../../shared/rules.js";
 import { MAPS } from "../../shared/maps.js";
 import { WEAPONS } from "./weapon-registry.js";
@@ -71,6 +73,9 @@ export class TacticalRoom extends Room<GameState> {
     this.onMessage("round-limit", (client, value) =>
       this.guard(client, () => this.setRoundLimit(client, value)),
     );
+    this.onMessage("game-mode",(client,value)=>this.guard(client,()=>this.setGameMode(client,value)));
+    this.onMessage("kill-limit",(client,value)=>this.guard(client,()=>this.setKillLimit(client,value)));
+    this.onMessage("match-seconds",(client,value)=>this.guard(client,()=>this.setMatchSeconds(client,value)));
     this.onMessage("map-selection", (client, value) =>
       this.guard(client, () => this.setMap(client, value)),
     );
@@ -177,6 +182,10 @@ export class TacticalRoom extends Room<GameState> {
       throw new Error("Choose best of 3, 5, 7, or 9.");
     this.state.roundLimit = value;
   }
+  private hostWaiting(client:Client){if(client.sessionId!==this.state.hostId||this.state.phase!=="waiting")throw new Error("Only the host can change match settings.");}
+  protected setGameMode(client:Client,value:unknown){this.hostWaiting(client);if(value!=="elimination"&&value!=="deathmatch")throw new Error("Unknown game mode.");this.state.gameMode=value;}
+  protected setKillLimit(client:Client,value:unknown){this.hostWaiting(client);if(typeof value!=="number"||!(DEATHMATCH_KILL_LIMITS as readonly number[]).includes(value))throw new Error("Choose a valid kill limit.");this.state.killLimit=value;}
+  protected setMatchSeconds(client:Client,value:unknown){this.hostWaiting(client);if(typeof value!=="number"||!(DEATHMATCH_MINUTES as readonly number[]).some(m=>m*60===value))throw new Error("Choose a valid time limit.");this.state.matchSeconds=value;}
   protected setMap(client: Client, value: unknown) {
     if (
       client.sessionId !== this.state.hostId ||
@@ -232,6 +241,8 @@ export class TacticalRoom extends Room<GameState> {
       p.vx = 0;
       p.vy = 0;
       p.vz = 0;
+      p.kills = 0;
+      p.deaths = 0;
     }
     this.updateListing();
   }

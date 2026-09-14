@@ -1,4 +1,4 @@
-Collateral Engine v2.3 - Save workflow and weapon switching
+Collateral Engine v2.4.1 - Combined-animation reset and stair traversal
 
 - Axis and rotation gizmos for the player reference, spawns, and lights
 - Map clicks no longer reposition the reference capsule
@@ -41,3 +41,13 @@ Collateral Engine v2.3 - Save workflow and weapon switching
 - Incomplete reloads preserve old ammo and receive no reload award
 - Immediate first crouch pose removes the standing-frame flash
 - Installed primary weapons are always assigned and equipped
+- Generation-safe weapon loading and clean idle restoration
+- Surface-tinted bullet impacts and rate-limited empty-mag audio
+- Hold-Tab scoreboard and host-configurable team deathmatch
+- Directional distance audio, smoother stairs and upgraded rendering
+- Third-person development camera with live FPS diagnostics
+- Procedural-idle weapons reset combined timelines to a deterministic neutral frame
+- Pre-collision stair ascent prevents vertical-face stall/pop loops
+- Scoreboard includes synchronized deaths
+- Mode, kill-limit and clock changes refresh lobby rules immediately
+- Precision gizmo snapping and exact per-axis nudge controls in the framer

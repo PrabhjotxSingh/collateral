@@ -1,4 +1,4 @@
-import {Scene,Camera,Engine,HemisphericLight,DirectionalLight,ShadowGenerator,Vector3,Color3,RawCubeTexture,SSAO2RenderingPipeline,DefaultRenderingPipeline,ImageProcessingConfiguration} from '@babylonjs/core';
+import {Scene,Camera,Engine,HemisphericLight,DirectionalLight,ShadowGenerator,Vector3,Color3,RawCubeTexture,SSAO2RenderingPipeline,DefaultRenderingPipeline,ImageProcessingConfiguration,MotionBlurPostProcess} from '@babylonjs/core';
 
 /** Daylight lighting stays independent of map geometry and server collision. */
 export function daylight(scene:Scene,camera:Camera){
@@ -8,7 +8,7 @@ export function daylight(scene:Scene,camera:Camera){
   sun.diffuse=new Color3(1,.94,.84);sun.intensity=2.1;sun.position.set(18,32,-18);
   sun.shadowMinZ=.1;sun.shadowMaxZ=110;
   const shadows=new ShadowGenerator(2048,sun);
-  shadows.usePercentageCloserFiltering=true;shadows.filteringQuality=ShadowGenerator.QUALITY_MEDIUM;
+  shadows.usePercentageCloserFiltering=true;shadows.filteringQuality=ShadowGenerator.QUALITY_HIGH;
   shadows.bias=.0003;shadows.normalBias=.025;shadows.darkness=.12;
 
   // A seamless low-frequency sky/ground reflection probe, generated locally.
@@ -30,9 +30,10 @@ export function daylight(scene:Scene,camera:Camera){
   // WebGL1 retains sunlight and shadows; AO requires WebGL2.
   if((scene.getEngine() as Engine).webGLVersion>1&&SSAO2RenderingPipeline.IsSupported){
     const ao=new SSAO2RenderingPipeline('contact-occlusion',scene,{ssaoRatio:.5,blurRatio:1},[camera]);
-    ao.radius=.28;ao.totalStrength=.55;ao.samples=8;ao.maxZ=60;ao.expensiveBlur=true;
+    ao.radius=.18;ao.totalStrength=.38;ao.samples=12;ao.maxZ=45;ao.expensiveBlur=true;
   }
   const finish=new DefaultRenderingPipeline('daylight-finish',true,scene,[camera]);
   finish.fxaaEnabled=true;finish.bloomEnabled=false;
+  if((scene.getEngine() as Engine).webGLVersion>1){const motion=new MotionBlurPostProcess('restrained-camera-motion',scene,1,camera);motion.isObjectBased=false;motion.motionStrength=.18;motion.motionBlurSamples=16;}
   return shadows;
 }

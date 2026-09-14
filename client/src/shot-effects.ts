@@ -10,6 +10,8 @@ import {
   PointLight,
   Material,
   TransformNode,
+  Ray,
+  PBRMaterial,
 } from "@babylonjs/core";
 import type { WeaponManifest } from "../../shared/weapons.js";
 export function tracerSegment(distance: number, age: number) {
@@ -266,6 +268,7 @@ export class ShotEffects {
     });
   }
   impact(position: Vector3, direction: Vector3, hit: boolean) {
+    if(!hit)this.impactMark(position,direction);
     for (let i = 0; i < (hit ? 3 : 6); i++) {
       const velocity = direction
         .scale(-0.12)
@@ -285,6 +288,21 @@ export class ShotEffects {
         hit ? 0.3 : 0.55,
       );
     }
+  }
+  private impactMark(position:Vector3,direction:Vector3){
+    // Sample the rendered surface just around the authoritative hit point. The
+    // resulting mark inherits a darkened version of that material's color,
+    // instead of looking like the same decal on concrete, metal and wood.
+    const ray=new Ray(position.subtract(direction.scale(.08)),direction,.18),pick=this.scene.pickWithRay(ray,m=>m.isPickable&&m.isVisible);
+    const source=pick?.pickedMesh?.material;
+    const base=source instanceof PBRMaterial?source.albedoColor:source instanceof StandardMaterial?source.diffuseColor:new Color3(.32,.3,.27);
+    const normal=pick?.getNormal(true)??direction.scale(-1),mark=MeshBuilder.CreateDisc("bullet-impact",{radius:.026,tessellation:14},this.scene);
+    mark.position.copyFrom((pick?.pickedPoint??position).add(normal.scale(.0025)));
+    mark.rotationQuaternion=Quaternion.FromLookDirectionLH(normal,Math.abs(Vector3.Dot(normal,Vector3.Up()))>.95?Vector3.Right():Vector3.Up());
+    mark.isPickable=false;mark.applyFog=true;
+    const mat=this.material("impact-mark",Color3.Lerp(base,new Color3(.045,.04,.035),.84));
+    mat.disableLighting=false;mat.emissiveColor=Color3.Black();mat.diffuseColor=Color3.Lerp(base,new Color3(.025,.022,.02),.88);mat.disableDepthWrite=false;mark.material=mat;
+    this.add({age:0,life:12,tick:t=>{mat.alpha=t>10?1-(t-10)/2:1;},dispose:()=>{mark.dispose();mat.dispose();}});
   }
   private puff(
     start: Vector3,

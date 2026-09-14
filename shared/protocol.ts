@@ -1,4 +1,4 @@
-import type { Phase, Team } from "./rules.js";
+import type { Phase, Team, GameMode } from "./rules.js";
 export interface Input {
   seq: number;
   forward: number;
@@ -35,6 +35,7 @@ export interface PlayerView {
   stepPhase: number;
   ack: number;
   kills: number;
+  deaths: number;
 }
 export interface GameView {
   players: Record<string, PlayerView>;
@@ -50,6 +51,9 @@ export interface GameView {
   remaining: number;
   winner: string;
   reason: string;
+  gameMode: GameMode;
+  killLimit: number;
+  matchSeconds: number;
 }
 export interface MapSummary {
   id: string;

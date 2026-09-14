@@ -1,5 +1,5 @@
 import { Schema, MapSchema, defineTypes } from "@colyseus/schema";
-import type { Phase, Team } from "../../shared/rules.js";
+import type { Phase, Team, GameMode } from "../../shared/rules.js";
 export class PlayerState extends Schema {
   id = "";
   username = "";
@@ -25,6 +25,7 @@ export class PlayerState extends Schema {
   reloading = false;
   ack = 0;
   kills = 0;
+  deaths = 0;
 }
 defineTypes(PlayerState, {
   id: "string",
@@ -51,6 +52,7 @@ defineTypes(PlayerState, {
   reloading: "boolean",
   ack: "number",
   kills: "number",
+  deaths: "number",
 });
 export class GameState extends Schema {
   players = new MapSchema<PlayerState>();
@@ -66,6 +68,9 @@ export class GameState extends Schema {
   remaining = 0;
   winner = "";
   reason = "";
+  gameMode: GameMode = "elimination";
+  killLimit = 20;
+  matchSeconds = 600;
 }
 defineTypes(GameState, {
   players: { map: PlayerState },
@@ -81,4 +86,7 @@ defineTypes(GameState, {
   remaining: "number",
   winner: "string",
   reason: "string",
+  gameMode: "string",
+  killLimit: "number",
+  matchSeconds: "number",
 });

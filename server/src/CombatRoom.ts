@@ -17,7 +17,7 @@ import {
   type Body,
 } from "../../shared/simulation.js";
 import { resolveMap } from "../../shared/geometry.js";
-import { roundWinner, traceShot } from "./combat.js";
+import { roundWinner, traceShot, deathmatchWinner } from "./combat.js";
 import { WEAPONS } from "./weapon-registry.js";
 import { DEFAULT_WEAPON_GAMEPLAY } from "../../shared/weapons.js";
 interface Runtime {
@@ -32,6 +32,7 @@ interface Runtime {
   sprintSuppressed: boolean;
   queuedFire: boolean;
   pendingFire?: FireRequest;
+  respawnAt: number;
   inventory: Map<string, { ammo: number; reserve: number }>;
 }
 export function switchWeaponAmmo(
@@ -189,6 +190,7 @@ export class CombatRoom extends TacticalRoom {
         sprintSuppressed: false,
         queuedFire: false,
         inventory: new Map([[p.weapon, { ammo: stats.magazine, reserve: stats.reserve }]]),
+        respawnAt: 0,
       });
     }
   }
@@ -235,8 +237,9 @@ export class CombatRoom extends TacticalRoom {
     if (s.phase === "prep") {
       if (s.remaining <= 0) {
         s.phase = "live";
-        this.deadline = this.simTime + RULES.roundSeconds;
-        s.remaining = RULES.roundSeconds;
+        const seconds=s.gameMode==="deathmatch"?s.matchSeconds:RULES.roundSeconds;
+        this.deadline = this.simTime + seconds;
+        s.remaining = seconds;
       }
       return;
     }
@@ -249,7 +252,8 @@ export class CombatRoom extends TacticalRoom {
     }
     for (const p of s.players.values()) {
       const rt = this.runtime.get(p.id);
-      if (!rt || p.health <= 0 || !p.connected) continue;
+      if(!rt||!p.connected)continue;
+      if(p.health<=0){if(s.gameMode==="deathmatch"&&rt.respawnAt>0&&this.simTime>=rt.respawnAt)this.respawn(p,rt);else continue;}
       const input = { ...rt.input };
       if (this.simTime - rt.received > RULES.inputTimeoutMs / 1000) {
         input.forward = 0;
@@ -291,6 +295,8 @@ export class CombatRoom extends TacticalRoom {
       if (p.sprint) rt.raiseEnd = this.simTime + RULES.weaponRaiseSeconds;
       if (p.y < -8) {
         p.health = 0;
+        p.deaths++;
+        if(s.gameMode==="deathmatch")rt.respawnAt=this.simTime+3;
         continue;
       }
       if (p.reloading && this.simTime >= rt.reloadEnd) {
@@ -320,7 +326,10 @@ export class CombatRoom extends TacticalRoom {
         rt.pendingFire = undefined;
       }
     }
-    const winner = this.devSolo ? undefined : roundWinner(s.players.values(), s.round, s.remaining <= 0);
+    if(!this.devSolo&&s.gameMode==="deathmatch"&&s.remaining<=0){
+      s.winner=deathmatchWinner(s.scoreA,s.scoreB,s.killLimit,true)!;s.reason=s.winner==="draw"?"Time expired — tied score":"Time expired";s.phase="finished";s.remaining=0;return;
+    }
+    const winner = this.devSolo||s.gameMode==="deathmatch" ? undefined : roundWinner(s.players.values(), s.round, s.remaining <= 0);
     if (winner)
       this.endRound(
         winner,
@@ -405,7 +414,13 @@ export class CombatRoom extends TacticalRoom {
       this.roundDamage.set(key, record);
       if (killed) {
         p.kills++;
+        shot.target.deaths++;
         this.sendDeathRecap(shot.target);
+        if(this.state.gameMode==="deathmatch"){
+          if(p.team==="A")this.state.scoreA++;else this.state.scoreB++;
+          const victimRuntime=this.runtime.get(shot.target.id);if(victimRuntime)victimRuntime.respawnAt=this.simTime+3;
+          const winner=deathmatchWinner(this.state.scoreA,this.state.scoreB,this.state.killLimit,false);if(winner){this.state.winner=winner;this.state.reason=`Team ${winner} reached ${this.state.killLimit} kills`;this.state.phase="finished";this.state.remaining=0;}
+        }
       }
     }
     const event: ShotEvent = {
@@ -424,12 +439,17 @@ export class CombatRoom extends TacticalRoom {
       headshot: shot.headshot,
     };
     this.broadcast("shot", event);
-    const winner = this.devSolo ? undefined : roundWinner(
+    const winner = this.devSolo||this.state.gameMode==="deathmatch" ? undefined : roundWinner(
       this.state.players.values(),
       this.state.round,
       false,
     );
     if (winner) this.endRound(winner, "Team eliminated");
+  }
+  private respawn(p:PlayerState,rt:Runtime){
+    const list=mapById(this.state.mapId).spawns[p.team],spawn=list[Math.floor(Math.random()*list.length)]??list[0],stats=this.stats(p);
+    p.x=spawn.x;p.y=spawn.y??0;p.z=spawn.z;p.yaw=spawn.yaw;p.pitch=0;p.health=RULES.health;p.ammo=stats.magazine;p.reserve=stats.reserve;p.reloading=false;p.crouch=false;p.ads=false;p.sprint=false;p.vx=p.vy=p.vz=0;p.grounded=true;p.stepPhase=0;
+    rt.body={...makeBody(p.x,p.z),y:p.y};rt.input={...emptyInput(),yaw:p.yaw};rt.reloadEnd=0;rt.recoil=0;rt.raiseEnd=0;rt.queuedFire=false;rt.pendingFire=undefined;rt.respawnAt=0;rt.inventory.set(p.weapon,{ammo:p.ammo,reserve:p.reserve});
   }
   private endRound(winner: Team | "draw", reason: string) {
     const s = this.state;

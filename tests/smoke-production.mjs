@@ -94,6 +94,11 @@ try {
     hitBytes,
     await readFile("client/public/assets/sounds/hitmarker.mp3"),
   );
+  const emptyResponse = await fetch("http://127.0.0.1:2569/assets/sounds/empty-clip.mp3");
+  assert.equal(emptyResponse.status, 200, "sounds/empty-clip.mp3");
+  const emptyBytes=Buffer.from(await emptyResponse.arrayBuffer());
+  assert.ok(emptyBytes.subarray(0,3).toString()==="ID3"||emptyBytes[0]===0xff,"empty clip is MP3");
+  assert.deepEqual(emptyBytes,await readFile("client/public/assets/sounds/empty-clip.mp3"));
   console.log(
     "PASS: production serves app, maps, weapon registry/packages, and sound assets.",
   );

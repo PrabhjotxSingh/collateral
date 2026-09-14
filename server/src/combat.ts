@@ -32,6 +32,10 @@ export function roundWinner(
   if (b === 0) return "A";
   if (expired) return a === b ? "draw" : a > b ? "A" : "B";
 }
+export function deathmatchWinner(scoreA:number,scoreB:number,limit:number,expired:boolean):Team|"draw"|undefined{
+  if(scoreA>=limit||scoreB>=limit)return scoreA===scoreB?"draw":scoreA>scoreB?"A":"B";
+  if(expired)return scoreA===scoreB?"draw":scoreA>scoreB?"A":"B";
+}
 export function traceShot(
   shooter: PlayerState,
   players: Iterable<PlayerState>,

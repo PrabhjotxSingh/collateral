@@ -511,3 +511,4 @@ canvas {
 .framer .framer-tabs { position:sticky; top:-18px; z-index:4; background:var(--panel); padding:10px 0; }
 
 .capture-all { margin-top:14px !important; border-color:#d6a45d !important; color:#ffd08c !important; background:#211a10 !important; font-weight:700; }
+.precision-controls{margin:14px 0;padding:12px;border:1px solid #29404c;background:#0b151a}.precision-controls h3{margin:0 0 6px;color:#8ed4ff;font-size:11px;letter-spacing:.14em}.precision-controls p{font-size:11px;line-height:1.5}.precision-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.precision-steps label{font-size:10px}.precision-steps input{margin-top:4px}.nudge-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px}.nudge-grid button{min-width:0!important;padding:7px 8px;font-size:10px}@media(max-width:800px){.precision-steps{grid-template-columns:1fr}}
