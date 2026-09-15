@@ -10,24 +10,24 @@
     "reloadSound": "reload.ogg"
   },
   "gameplay": {
-    "damage": 24,
-    "headshotMultiplier": 3,
-    "range": 80,
-    "rpm": 500,
+    "damage": 28,
+    "headshotMultiplier": 2,
+    "range": 90,
+    "rpm": 650,
     "fireMode": "auto",
     "magazine": 30,
-    "reserve": 120,
-    "reloadSeconds": 1.7,
+    "reserve": 90,
+    "reloadSeconds": 2.1,
     "spread": {
-      "standing": 0.002,
-      "moving": 0.018,
-      "crouched": 0.0012,
-      "ads": 0.0008
+      "standing": 0.0018,
+      "moving": 0.022,
+      "crouched": 0.001,
+      "ads": 0.00065
     },
     "recoil": {
-      "pitch": 1.25,
-      "yaw": 0.35,
-      "recovery": 12
+      "pitch": 1.5,
+      "yaw": 0.45,
+      "recovery": 10
     }
   },
   "effects": {

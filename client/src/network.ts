@@ -30,6 +30,8 @@ export class Network extends EventTarget {
   state?: GameView;
   private intentional = new Set<Room>();
   private weaponCache = new Map<string, WeaponManifest>();
+  ping = 0;
+  private pingTimer = 0;
   async refreshMaps() {
     const response = await fetch("/api/maps", { cache: "no-store" });
     if (!response.ok) throw new Error("Could not load installed maps.");
@@ -136,6 +138,7 @@ export class Network extends EventTarget {
     );
   }
   private bindMatch(room: Room) {
+    window.clearInterval(this.pingTimer);
     this.match = room;
     sessionStorage.setItem("collateral.match", room.reconnectionToken);
     room.onStateChange((state) => {
@@ -152,11 +155,20 @@ export class Network extends EventTarget {
     );
     room.onMessage("step", (step) => this.emit("step", step));
     room.onMessage("reload", (event) => this.emit("reload", event));
+    room.onMessage("reload-stop", (event) => this.emit("reload-stop", event));
+    room.onMessage("pong", (sent: number) => {
+      if (!Number.isFinite(sent)) return;
+      this.ping = Math.max(0, Math.round(performance.now() - sent));
+      room.send("latency", this.ping);
+    });
     room.onError((_code, message) => this.emit("error", message));
     room.onLeave((code) => {
       if (!this.intentional.has(room) && code !== 1000) this.recoverMatch(room);
     });
     this.emit("match");
+    const sample = () => room.send("ping", performance.now());
+    sample();
+    this.pingTimer = window.setInterval(sample, 2000);
   }
   private async recoverMatch(room: Room) {
     if (this.match !== room || !this.identity) return;
@@ -194,7 +206,9 @@ export class Network extends EventTarget {
       | "fire"
       | "reload"
       | "ready"
-      | "weapon",
+      | "weapon"
+      | "ping"
+      | "latency",
     value?: unknown,
   ) {
     this.match?.send(type, value);
@@ -241,6 +255,7 @@ export class Network extends EventTarget {
     installMaps([...MAPS.filter((m) => m.id !== map.id), map]);
   }
   async leaveMatch() {
+    window.clearInterval(this.pingTimer);
     const room = this.match;
     if (room) this.intentional.add(room);
     this.match = undefined;

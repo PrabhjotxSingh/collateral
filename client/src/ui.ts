@@ -38,6 +38,7 @@ const actionLabels: Record<Action, string> = {
   fire: "Fire",
   ads: "Aim · hold",
   sprint: "Sprint · hold",
+  scoreboard: "Scoreboard · hold",
 };
 export class UI {
   private root = document.querySelector<HTMLDivElement>("#ui")!;
@@ -125,7 +126,7 @@ export class UI {
     window.addEventListener(
       "keydown",
       (e) => {
-        if(e.code==="Tab"&&this.net.state&&this.net.state.phase!=="waiting"){
+        if((e.code===this.settings.keys.scoreboard||(!this.settings.keys.scoreboard&&e.code==="Tab"))&&this.net.state&&this.net.state.phase!=="waiting"){
           e.preventDefault();this.showScoreboard=true;this.renderState();return;
         }
         if (!this.binding) return;
@@ -140,7 +141,7 @@ export class UI {
       },
       true,
     );
-    window.addEventListener("keyup",e=>{if(e.code==="Tab"&&this.showScoreboard){this.showScoreboard=false;this.renderState();}});
+    window.addEventListener("keyup",e=>{if((e.code===this.settings.keys.scoreboard||(!this.settings.keys.scoreboard&&e.code==="Tab"))&&this.showScoreboard){this.showScoreboard=false;this.renderState();}});
     window.addEventListener("blur",()=>{if(this.showScoreboard){this.showScoreboard=false;this.renderState();}});
     window.addEventListener(
       "mousedown",
@@ -464,8 +465,10 @@ export class UI {
     );
     const weaponName = equipped?.name ?? me.weapon.split("/").pop() ?? "Weapon";
     const weaponSlot = equipped?.slot === "primary" ? "1" : "2";
-    const board=this.showScoreboard?`<div class="tab-scoreboard"><header><span>PLAYER</span><span>KILLS</span><span>DEATHS</span><span>STATUS</span></header>${(["A","B"] as const).map(team=>`<section class="tab-team team-${team}"><h3>TEAM ${team}</h3>${Object.values(s.players).filter(p=>p.team===team).map(p=>`<div><strong>${esc(p.username)}${p.id===me.id?' <small>YOU</small>':''}</strong><b>${p.kills}</b><b>${p.deaths}</b><span>${p.connected?(p.health>0?`${p.health} HP`:"DEAD"):"DISCONNECTED"}</span></div>`).join("")}</section>`).join("")}</div>`:"";
+    const board=this.showScoreboard?`<div class="tab-scoreboard"><header><span>PLAYER</span><span>KILLS</span><span>DEATHS</span><span>PING</span><span>STATUS</span></header>${(["A","B"] as const).map(team=>`<section class="tab-team team-${team}"><h3>TEAM ${team}</h3>${Object.values(s.players).filter(p=>p.team===team).map(p=>`<div><strong>${esc(p.username)}${p.id===me.id?' <small>YOU</small>':''}</strong><b>${p.kills}</b><b>${p.deaths}</b><b>${p.ping ?? 0} ms</b><span>${p.connected?(p.health>0?`${p.health} HP`:"DEAD"):"DISCONNECTED"}</span></div>`).join("")}</section>`).join("")}</div>`:"";
+    const protection=me.spawnProtected?'<div class="spawn-protection-label">SPAWN PROTECTION</div>':"";
     this.hud.innerHTML = `<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>${s.gameMode==="deathmatch"?"DEATHMATCH":`ROUND ${s.round}`}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : s.gameMode==="deathmatch"?`FIRST TO ${s.killLimit}`:`ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${board}${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>${s.gameMode==="deathmatch"?"Deathmatch":`Round ${s.round}`}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}` : s.gameMode==="deathmatch"?"RESPAWNING…":"ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : esc(equipped?.name ?? me.weapon.split("/").at(-1) ?? "WEAPON")}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">TAB · Scoreboard&nbsp;&nbsp; ESC · Release mouse</div>`;
+    this.hud.innerHTML += protection;
     this.hud.innerHTML = this.hud.innerHTML.replace("GLOCK", esc(weaponName));
     this.hud.insertAdjacentHTML(
       "beforeend",

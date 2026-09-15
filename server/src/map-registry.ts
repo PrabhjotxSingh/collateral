@@ -13,7 +13,9 @@ export function validateMap(value:unknown,idFromFolder?:string):GameMap{
   const lights=Array.isArray(m.lights)?m.lights:[];
   if(lights.length>128||lights.some(l=>l.type!=='point'||![l.x,l.y,l.z,l.intensity,l.range].every(finite)||typeof l.color!=='string'))throw new Error(`Invalid lights in ${id}`);
   const preset=m.skybox?.preset??'blue-day';if(!['blue-day','overcast','night','custom'].includes(preset))throw new Error(`Invalid skybox in ${id}`);
-  return {...m,id,name:m.name.trim(),asset:`/maps/${id}/map.glb`,walls:[],scale:finite(m.scale)?m.scale:1,offsetY:finite(m.offsetY)?m.offsetY:0,lights,skybox:{preset,asset:preset==='custom'?`/maps/${id}/skybox.env`:undefined}} as GameMap;
+  const sun=m.sun;
+  if(sun&&(![sun.x,sun.y,sun.z,sun.intensity].every(finite)||typeof sun.color!=='string'||typeof sun.enabled!=='boolean'))throw new Error(`Invalid sun in ${id}`);
+  return {...m,id,name:m.name.trim(),asset:`/maps/${id}/map.glb`,walls:[],scale:finite(m.scale)?m.scale:1,offsetY:finite(m.offsetY)?m.offsetY:0,lights,skybox:{preset,asset:preset==='custom'?`/maps/${id}/skybox.env`:undefined},sun} as GameMap;
 }
 
 export function loadInstalledMaps(root:string){

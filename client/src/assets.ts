@@ -39,6 +39,9 @@ export class Assets {
   private worldLoads = new WeakMap<AssetInstance,object>();
   private referenceFits = new Map<string,Promise<Matrix | undefined>>();
   constructor(private scene: Scene) {}
+  async preload(...paths: Array<string | undefined>) {
+    await Promise.all(paths.filter((p): p is string => !!p).map((p) => this.load(p)));
+  }
   private frame(node: TransformNode, value: FrameTransform) {
     node.position.set(value.x, value.y, value.z);
     node.rotationQuaternion = null;

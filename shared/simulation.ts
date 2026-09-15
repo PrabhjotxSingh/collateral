@@ -25,7 +25,12 @@ export function moveBody(b:Body,input:Input,dt:number,map:GameMap){
   const forward=input.forward/length,strafe=input.strafe/length;
   const targetX=(Math.sin(input.yaw)*forward+Math.cos(input.yaw)*strafe)*speed;
   const targetZ=(Math.cos(input.yaw)*forward-Math.sin(input.yaw)*strafe)*speed;
-  const blend=b.grounded?1:Math.min(1,dt*RULES.airControl*10);
+  // Fast but non-instant ground acceleration removes the digital start/stop
+  // feel while retaining tactical responsiveness. Braking is deliberately
+  // firmer so releasing a key never feels slippery.
+  const moving=Math.abs(input.forward)+Math.abs(input.strafe)>.001;
+  const response=moving?(b.crouch?38:b.ads?42:46):58;
+  const blend=b.grounded?1-Math.exp(-response*dt):Math.min(1,dt*RULES.airControl*10);
   b.vx+=(targetX-b.vx)*blend;b.vz+=(targetZ-b.vz)*blend;
   if(input.jump&&!b.lastJump&&b.grounded){b.vy=RULES.jumpSpeed;b.grounded=false;}b.lastJump=input.jump;
   b.vy-=RULES.gravity*dt;

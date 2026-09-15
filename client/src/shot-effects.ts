@@ -289,6 +289,16 @@ export class ShotEffects {
       );
     }
   }
+  blood(position: Vector3, direction: Vector3) {
+    for(let i=0;i<18;i++)this.puff(
+      position,
+      direction.scale(-.16-Math.random()*.16).add(new Vector3((Math.random()-.5)*1.15,Math.random()*.75-.08,(Math.random()-.5)*1.15)),
+      .025+Math.random()*.04,
+      .32+Math.random()*.28,
+      i%4===0?new Color3(.48,.018,.012):new Color3(.23,.006,.004),
+      .82,
+    );
+  }
   private impactMark(position:Vector3,direction:Vector3){
     // Sample the rendered surface just around the authoritative hit point. The
     // resulting mark inherits a darkened version of that material's color,

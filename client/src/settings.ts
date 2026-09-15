@@ -8,7 +8,8 @@ export type Action =
   | "reload"
   | "fire"
   | "ads"
-  | "sprint";
+  | "sprint"
+  | "scoreboard";
 export interface Settings {
   sensitivity: number;
   fov: number;
@@ -42,6 +43,7 @@ export const defaults: Settings = {
     fire: "Mouse0",
     ads: "Mouse2",
     sprint: "ShiftLeft",
+    scoreboard: "Tab",
   },
 };
 export function loadSettings(): Settings {

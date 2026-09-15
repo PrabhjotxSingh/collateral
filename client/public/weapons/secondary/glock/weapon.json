@@ -8,13 +8,13 @@
     "world": "world.glb"
   },
   "gameplay": {
-    "damage": 34,
-    "headshotMultiplier": 3,
-    "range": 80,
-    "rpm": 480,
+    "damage": 38,
+    "headshotMultiplier": 2.65,
+    "range": 55,
+    "rpm": 500,
     "magazine": 17,
     "reserve": 51,
-    "reloadSeconds": 1.7,
+    "reloadSeconds": 1.5,
     "spread": {
       "standing": 0.002,
       "moving": 0.018,

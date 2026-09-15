@@ -36,10 +36,10 @@ export class ViewmodelMotion {
     const angle=this.phase*Math.PI,bobX=Math.sin(angle)*.0025*weight,bobY=-Math.cos(angle*2)*.005*weight;
     this.recoil*=Math.exp(-16*dt);this.recoilPitch*=Math.exp(-19*dt);
     this.previous={...input};
-    return {x:.18*(1-ads)+.055*sprint+bobX+(swayX*.16+offset+inertiaX)*steadiness,
-      y:-.17+.051*ads-.14*sprint-.014*crouch*(1-ads)+bobY+dip+swayY*.12*steadiness,
-      z:.4-.035*sprint+.012*crouch*(1-ads)+inertiaZ*steadiness-this.recoil,
-      pitch:.5*sprint+swayY*steadiness-inertiaZ*2*steadiness-this.recoilPitch,
-      yaw:swayX*steadiness+.12*sprint,roll:.18*sprint+roll*steadiness,ads,sprint};
+    return {x:.18*(1-ads)+.025*sprint+bobX+(swayX*.16+offset+inertiaX)*steadiness,
+      y:-.17+.051*ads-.045*sprint-.014*crouch*(1-ads)+bobY+dip+swayY*.12*steadiness,
+      z:.4+.025*sprint+.012*crouch*(1-ads)+inertiaZ*steadiness-this.recoil,
+      pitch:.18*sprint+swayY*steadiness-inertiaZ*2*steadiness-this.recoilPitch,
+      yaw:swayX*steadiness+.05*sprint,roll:.08*sprint+roll*steadiness,ads,sprint};
   }
 }

@@ -33,6 +33,7 @@ interface Runtime {
   queuedFire: boolean;
   pendingFire?: FireRequest;
   respawnAt: number;
+  protectionEnd: number;
   inventory: Map<string, { ammo: number; reserve: number }>;
 }
 export function switchWeaponAmmo(
@@ -63,6 +64,11 @@ export class CombatRoom extends TacticalRoom {
   }
   async onCreate(options: any) {
     await super.onCreate(options);
+    this.onMessage("ping", (client, sent) => client.send("pong", sent));
+    this.onMessage("latency", (client, value) => {
+      const p = this.state.players.get(client.sessionId);
+      if (p && Number.isFinite(value)) p.ping = Math.max(0, Math.min(5000, Math.round(value)));
+    });
     this.onMessage("input", (client, input) => {
       const rt = this.runtime.get(client.sessionId),
         p = this.state.players.get(client.sessionId);
@@ -142,6 +148,7 @@ export class CombatRoom extends TacticalRoom {
     p.ammo = restored.ammo;
     p.reserve = restored.reserve;
     p.reloading = false;
+    this.broadcast("reload-stop", { id: p.id });
     rt.reloadEnd = 0;
     rt.queuedFire = false;
     rt.pendingFire = undefined;
@@ -177,6 +184,7 @@ export class CombatRoom extends TacticalRoom {
       p.vz = 0;
       p.grounded = true;
       p.stepPhase = 0;
+      p.spawnProtected = false;
       p.ack = 0;
       this.runtime.set(p.id, {
         body: { ...makeBody(p.x, p.z), y: p.y },
@@ -191,6 +199,7 @@ export class CombatRoom extends TacticalRoom {
         queuedFire: false,
         inventory: new Map([[p.weapon, { ammo: stats.magazine, reserve: stats.reserve }]]),
         respawnAt: 0,
+        protectionEnd: 0,
       });
     }
   }
@@ -253,6 +262,7 @@ export class CombatRoom extends TacticalRoom {
     for (const p of s.players.values()) {
       const rt = this.runtime.get(p.id);
       if(!rt||!p.connected)continue;
+      if (p.spawnProtected && this.simTime >= rt.protectionEnd) p.spawnProtected = false;
       if(p.health<=0){if(s.gameMode==="deathmatch"&&rt.respawnAt>0&&this.simTime>=rt.respawnAt)this.respawn(p,rt);else continue;}
       const input = { ...rt.input };
       if (this.simTime - rt.received > RULES.inputTimeoutMs / 1000) {
@@ -415,6 +425,7 @@ export class CombatRoom extends TacticalRoom {
       if (killed) {
         p.kills++;
         shot.target.deaths++;
+        shot.target.spawnProtected = false;
         this.sendDeathRecap(shot.target);
         if(this.state.gameMode==="deathmatch"){
           if(p.team==="A")this.state.scoreA++;else this.state.scoreB++;
@@ -447,9 +458,18 @@ export class CombatRoom extends TacticalRoom {
     if (winner) this.endRound(winner, "Team eliminated");
   }
   private respawn(p:PlayerState,rt:Runtime){
-    const list=mapById(this.state.mapId).spawns[p.team],spawn=list[Math.floor(Math.random()*list.length)]??list[0],stats=this.stats(p);
+    const map=mapById(this.state.mapId),list=[...map.spawns.A,...map.spawns.B];
+    // Deathmatch spawns are neutral. Prefer locations furthest from living
+    // opponents, then randomize between the two safest choices.
+    const enemies=[...this.state.players.values()].filter(other=>other.id!==p.id&&other.connected&&other.health>0);
+    const ranked=[...list].sort((a,b)=>{
+      const safe=(s:typeof a)=>enemies.length?Math.min(...enemies.map(e=>(e.x-s.x)**2+(e.z-s.z)**2)):Infinity;
+      return safe(b)-safe(a);
+    });
+    const candidates=ranked.slice(0,Math.min(2,ranked.length)),spawn=candidates[Math.floor(Math.random()*candidates.length)]??list[0],stats=this.stats(p);
     p.x=spawn.x;p.y=spawn.y??0;p.z=spawn.z;p.yaw=spawn.yaw;p.pitch=0;p.health=RULES.health;p.ammo=stats.magazine;p.reserve=stats.reserve;p.reloading=false;p.crouch=false;p.ads=false;p.sprint=false;p.vx=p.vy=p.vz=0;p.grounded=true;p.stepPhase=0;
     rt.body={...makeBody(p.x,p.z),y:p.y};rt.input={...emptyInput(),yaw:p.yaw};rt.reloadEnd=0;rt.recoil=0;rt.raiseEnd=0;rt.queuedFire=false;rt.pendingFire=undefined;rt.respawnAt=0;rt.inventory.set(p.weapon,{ammo:p.ammo,reserve:p.reserve});
+    p.spawnProtected=true;rt.protectionEnd=this.simTime+1;
   }
   private endRound(winner: Team | "draw", reason: string) {
     const s = this.state;

@@ -36,6 +36,8 @@ export interface PlayerView {
   ack: number;
   kills: number;
   deaths: number;
+  ping: number;
+  spawnProtected: boolean;
 }
 export interface GameView {
   players: Record<string, PlayerView>;

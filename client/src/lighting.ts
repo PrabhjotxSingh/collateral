@@ -1,4 +1,15 @@
 import {Scene,Camera,Engine,HemisphericLight,DirectionalLight,ShadowGenerator,Vector3,Color3,RawCubeTexture,SSAO2RenderingPipeline,DefaultRenderingPipeline,ImageProcessingConfiguration,MotionBlurPostProcess} from '@babylonjs/core';
+import type { MapSun } from '../../shared/maps.js';
+
+const FALLBACK_SUN:MapSun={enabled:true,x:18,y:32,z:-18,color:'#fff0d6',intensity:2.1};
+export function applyMapSun(scene:Scene, authored?:MapSun){
+  const value=authored??FALLBACK_SUN,sun=scene.getLightByName('sun') as DirectionalLight|undefined;
+  if(!sun)return;
+  const position=new Vector3(value.x,value.y,value.z),length=position.length();
+  sun.setEnabled(value.enabled);sun.position.copyFrom(position);
+  sun.direction=length>.001?position.scale(-1/length):new Vector3(-.45,-.85,.32).normalize();
+  sun.diffuse=Color3.FromHexString(value.color);sun.intensity=value.intensity;
+}
 
 /** Daylight lighting stays independent of map geometry and server collision. */
 export function daylight(scene:Scene,camera:Camera){

@@ -1,7 +1,7 @@
 import { blendFrame } from "../../shared/weapon-transforms";
 import { usesProcedural } from "../../shared/weapons";
 import { DevTools } from "./dev-tools";
-import { daylight } from "./lighting";
+import { daylight, applyMapSun } from "./lighting";
 import {
   Engine,
   Scene,
@@ -44,6 +44,7 @@ export class Game {
   readonly camera: UniversalCamera;
   private shadows: ShadowGenerator;
   private players = new Map<string, Mesh>();
+  private spawnShields = new Map<string, Mesh>();
   private keys = new Set<string>();
   private mapId = "";
   private completedMapId = "";
@@ -100,7 +101,10 @@ export class Game {
   private switchLoaded = false;
   private weaponLoadGeneration = 0;
   private emptyClickAt = -Infinity;
+  private loadoutPreload?: Promise<void>;
   private devCamera={enabled:false,distance:3.2,height:.65};
+  private previousHealth = new Map<string, number>();
+  private respawnHiddenUntil = new Map<string, number>();
   constructor(
     private canvas: HTMLCanvasElement,
     private network: Network,
@@ -168,6 +172,8 @@ export class Game {
     document.body.append(this.tags);
     this.scene.setRenderingAutoClearDepthStencil(1, true, true, true);
     void this.changeWeapon("secondary/glock");
+    network.addEventListener("identity", () => void this.preloadLoadout());
+    network.addEventListener("match", () => void this.preloadLoadout());
     network.addEventListener("shot", (e) =>
       this.shot((e as CustomEvent<ShotEvent>).detail),
     );
@@ -181,7 +187,13 @@ export class Game {
     network.addEventListener("reload", (e) => {
       const detail = (e as CustomEvent).detail,
         weapon = this.state?.players[detail.id]?.weapon;
-      this.audio.play("reload", detail, 1, weapon);
+      const local=detail.id===this.network.match?.sessionId;
+      // The local weapon lives with the listener. Remote reloads remain HRTF
+      // emitters and are moved with their player every frame.
+      this.audio.play("reload", local?undefined:detail, 1, weapon, detail.id);
+    });
+    network.addEventListener("reload-stop", (e) => {
+      this.audio.stop("reload", (e as CustomEvent).detail.id);
     });
     window.addEventListener("resize", () => this.engine.resize());
     window.addEventListener("dev-third-person",e=>{this.devCamera={...(e as CustomEvent<typeof this.devCamera>).detail};});
@@ -252,7 +264,7 @@ export class Game {
     return this.mapId;
   }
   enter() {
-    void this.audio.unlock();
+    void this.audio.unlock().then(() => this.preloadLoadout());
     void this.canvas.requestPointerLock();
   }
   private held(action: Action) {
@@ -282,12 +294,29 @@ export class Game {
     this.switchElapsed = 0.5;
     this.switchLoaded = false;
     this.fireRequested = false;
+    const meId=this.network.match?.sessionId;
+    if(meId)this.audio.stop("reload",meId);
     this.network.send("weapon", path);
+  }
+  private preloadLoadout() {
+    if (this.loadoutPreload) return this.loadoutPreload;
+    const paths = [
+      this.settings.primary ? `primary/${this.settings.primary}` : "",
+      this.settings.secondary ? `secondary/${this.settings.secondary}` : "",
+    ].filter((path) => path && this.network.weapons.some((w) => w.path === path));
+    this.loadoutPreload = Promise.all(paths.map(async (path) => {
+      const manifest = await this.network.weapon(path);
+      this.weaponManifests.set(path, manifest);
+      await this.assets.preload(manifest.assets.view, manifest.assets.world);
+      await this.audio.weapon(path, manifest);
+    })).then(() => undefined).finally(() => { this.loadoutPreload = undefined; });
+    return this.loadoutPreload;
   }
   private async changeWeapon(path: string) {
     const generation=++this.weaponLoadGeneration;
     this.gun.setEnabled(false);
     this.reloadWasActive=false;this.shotAnimRemaining=0;this.bakedDraw=false;
+    const meId=this.network.match?.sessionId;if(meId)this.audio.stop("reload",meId);
     this.weapon?.clips.resetToIdle();
     this.weapon?.dispose();this.weapon=undefined;
     this.gun.position.setAll(0);this.gun.rotation.setAll(0);this.gun.scaling.setAll(1);
@@ -326,7 +355,9 @@ export class Game {
       void this.audio.weapon(path, manifest);
       if (this.actorAssets.get(id) !== actor || this.actorWeaponRequests.get(id)!==request) return;
       const world=await this.assets.worldWeapon(manifest, actor);
-      if(world){world.clips.play("draw",false,DRAW_SECONDS);world.weaponAction={action:"draw",elapsed:0,duration:DRAW_SECONDS};}
+      // Other players should already be holding their selected weapon. A
+      // camera-facing draw motion made small pistols appear to float in.
+      if(world){world.root.position.setAll(0);world.root.rotation.setAll(0);world.clips.settleIdle();world.weaponAction=undefined;}
       if(this.actorWeaponRequests.get(id)===request)this.actorWeapons.set(id, path);
     } catch (error) {
       console.warn("World weapon package unavailable", error);
@@ -413,6 +444,7 @@ export class Game {
     await paint();
     const map = mapById(id);
     this.applySkybox(map.skybox?.preset ?? "blue-day", map.skybox?.asset);
+    applyMapSun(this.scene,map.sun);
     if (map.triangles) {
       // The same baked surface used by the server also supplies a safe fallback
       // and Havok casing collision; no obsolete greybox walls remain.
@@ -586,6 +618,10 @@ export class Game {
         );
         mesh.position.set(p.x, p.y + RULES.height / 2, p.z);
         this.players.set(p.id, mesh);
+        const shield=MeshBuilder.CreateCapsule(`${p.id}-spawn-protection`,{height:RULES.height+0.18,radius:RULES.radius+0.1},this.scene);
+        const shieldMat=this.material(`${p.id}-spawn-protection-material`,new Color3(.12,.62,1));
+        shieldMat.alpha=.2;shieldMat.emissiveColor=new Color3(.08,.34,.72);shieldMat.backFaceCulling=false;
+        shield.material=shieldMat;shield.isPickable=false;shield.setEnabled(false);this.spawnShields.set(p.id,shield);
         const root = new TransformNode(`${p.id}-model`, this.scene);
         root.parent = mesh;
         root.position.y = -RULES.height / 2;
@@ -735,8 +771,20 @@ export class Game {
     for (const [id, mesh] of this.players) {
       const p = this.state.players[id];
       if (!p) continue;
+      this.audio.move("reload",id,{x:p.x,y:p.y+(p.crouch?RULES.crouchEyeHeight:RULES.eyeHeight),z:p.z});
       const actor = this.actorAssets.get(id);
       const dead = p.health <= 0;
+      const priorHealth=this.previousHealth.get(id);
+      if(priorHealth!==undefined&&priorHealth<=0&&p.health>0){
+        // Hide the corpse while it is atomically returned to a spawn. This
+        // prevents interpolation from visibly dragging a body across the map.
+        mesh.position.set(p.x,p.y+RULES.height/2,p.z);
+        this.respawnHiddenUntil.set(id,performance.now()+140);
+        actor?.clips.resetToIdle();actor?.combat?.stop();
+      }
+      this.previousHealth.set(id,p.health);
+      const shield=this.spawnShields.get(id);
+      if(shield){shield.position.set(p.x,p.y+RULES.height/2,p.z);shield.setEnabled(id!==me.id&&p.health>0&&p.spawnProtected);}
       if (dead && actor && !this.actorDead.has(id)) {
         this.actorDead.add(id);
         actor.combat?.stop();
@@ -747,7 +795,8 @@ export class Game {
         p.connected &&
           id !== me.id &&
           id !== target?.id &&
-          (!dead || this.actorDead.has(id)),
+          (!dead || this.actorDead.has(id)) &&
+          performance.now()>=(this.respawnHiddenUntil.get(id)??0)
       );
       const dx = p.x - mesh.position.x,
         dz = p.z - mesh.position.z;
@@ -934,8 +983,9 @@ export class Game {
     const start = muzzle?.getAbsolutePosition().clone() ?? origin;
     if (shot.distance > 0.65 && Vector3.Dot(end.subtract(start), direction) > 0)
       this.effects.tracer(start, end, manifest?.effects.tracer);
-    if (shot.distance < (manifest?.gameplay.range ?? RULES.maxRange) - 0.01)
-      this.effects.impact(end, direction, shot.hit);
+    if (shot.distance < (manifest?.gameplay.range ?? RULES.maxRange) - 0.01) {
+      if(shot.hit)this.effects.blood(end,direction);else this.effects.impact(end,direction,false);
+    }
   }
   private updateNameTags(me: PlayerView, target?: PlayerView) {
     const viewport = this.camera.viewport.toGlobal(
@@ -1005,7 +1055,9 @@ export class Game {
     this.lastRound = 0;
     this.keys.clear();
     for (const mesh of this.players.values()) mesh.dispose();
+    for (const mesh of this.spawnShields.values()){mesh.material?.dispose();mesh.dispose();}
     this.players.clear();
+    this.spawnShields.clear();
     this.actorAssets.clear();
     this.actorPhases.clear();
     this.actorDead.clear();
@@ -1013,6 +1065,8 @@ export class Game {
     this.actorWeapons.clear();
     this.actorWeaponRequests.clear();
     this.crouchedActors.clear();
+    this.previousHealth.clear();
+    this.respawnHiddenUntil.clear();
     for (const tag of this.nameTags.values()) tag.remove();
     this.nameTags.clear();
     this.prediction.reset();

@@ -47,6 +47,7 @@ Environment variables:
 | Sprint | Hold left Shift + forward |
 | Crouch | Hold C |
 | Jump | Space |
+| Scoreboard | Tab |
 | Release mouse | Escape |
 
 Gameplay bindings can be changed in Settings; Escape, Ctrl and Command remain reserved. Saved Ctrl crouch bindings migrate to C. Sensitivity, horizontal FOV, master volume, effects volume and bindings save in localStorage. Usernames and reconnection secrets use tab-scoped sessionStorage; they are session identities, not accounts.
@@ -56,7 +57,8 @@ Gameplay bindings can be changed in Settings; Escape, Ctrl and Command remain re
 - Team A and Team B have identical rules. Spawn sides alternate each round for map fairness; teams and scores stay intact.
 - A round ends on the first casualty. At timeout, the team with more living connected players wins; equal survivors means a draw with no points. If a team leaves completely, the match stops without awarding more rounds.
 - No mid-round respawns, healing, economy, progression or bots. Dead players spectate their surviving teammate.
-- Glock: 17-round magazine, 51 reserve, manual 1.7-second reload, 40 body damage, 2.5× head multiplier, minimum 190 ms between shots. Teammates block shots; friendly damage is disabled.
+- Glock: 17-round magazine, 51 reserve, manual 1.5-second reload, 38 body damage, 2.65× head multiplier, 500 RPM semi-auto ceiling. Teammates block shots; friendly damage is disabled.
+- Carbine: 30-round magazine, 90 reserve, 2.1-second reload, 28 body damage, 2× head multiplier, 650 RPM automatic fire and a longer 90 m effective range. It is steadier while planted/ADS but substantially less accurate while moving and accumulates more recoil than the Glock.
 - Walking 3.6 m/s, sprinting 5.2 m/s, ADS walking 2.1 m/s, crouching 1.65 m/s. Air control is capped, and holding jump cannot repeatedly jump.
 - Ground movement produces distance-timed positional footsteps; crouch/ADS steps are quieter. Only footsteps retain a synthesized fallback. Firing from sprint first raises the weapon for 240 ms; a shot is queued until it is ready.
 - Back from a lobby/match returns to the menu and retains the callsign. Explicit sign-out immediately frees it. Identity disconnection also frees it as soon as detected by the server; old tokens are invalidated and their match connection is closed. A match-only transport drop can reconnect within 30 seconds if the identity connection remains alive, with no mid-round respawn. Refreshing the page now requires a new callsign connection.
@@ -114,10 +116,9 @@ In development (`npm run dev`), press F2. The panel is excluded from ordinary
 production sessions. This opts into local diagnostics;
 it does not change server rules, health, collision or shot validation.
 
-The panel includes an orbitable SWAT/Glock preview, available even from the menu
-without a second player. Drag to orbit and scroll to zoom. Adjust X/Y/Z in metres,
-pitch/yaw/roll in degrees, and relative scale. Values apply live to third-person
-Glocks for the current session only. They do not change the first-person viewmodel.
+The panel includes collision/impact diagnostics, a third-person camera, a map
+sandbox, live FPS/frame timing, and first-shot hitch timing. Development controls
+are session-only and excluded from production sessions.
 Use the pose buttons to check idle, walk, crouch, jump and death. Click Copy settings
 and paste the JSON into chat; Apply JSON imports a profile, and Reset grip restores the approved X −0.025, Y 0.037, Z 0.027 fit. Close the panel with F2, then click the game to capture the mouse.
 

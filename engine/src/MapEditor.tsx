@@ -9,6 +9,7 @@ import {
   Mesh,
   MeshBuilder,
   PointLight,
+  DirectionalLight,
   Scene,
   SceneLoader,
   StandardMaterial,
@@ -19,14 +20,14 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import JSZip from "jszip";
-import type { GameMap, MapLight, MapSkybox, Spawn } from "../../shared/maps";
+import { SUN_INTENSITIES, type GameMap, type MapLight, type MapSkybox, type MapSun, type Spawn } from "../../shared/maps";
 import { makeBody, moveBody, type Body } from "../../shared/simulation";
 import { RULES } from "../../shared/rules";
 import type { Input } from "../../shared/protocol";
 import "./style.css";
 type Team = "A" | "B";
 type SpawnMarker = Spawn & { id: string; team: Team };
-type Selected = { kind: "reference" | "spawn" | "light"; id: string };
+type Selected = { kind: "reference" | "spawn" | "light" | "sun"; id: string };
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 const cleanId = (s: string) =>
   s
@@ -69,6 +70,8 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     gizmos = useRef<GizmoManager | undefined>(undefined),
     spawnNodes = useRef(new Map<string, TransformNode>()),
     lightNodes = useRef(new Map<string, TransformNode>()),
+    sunNode = useRef<TransformNode | undefined>(undefined),
+    sunLight = useRef<DirectionalLight | undefined>(undefined),
     ambient = useRef<HemisphericLight | undefined>(undefined);
   const arcCamera = useRef<ArcRotateCamera | undefined>(undefined),
     testCamera = useRef<UniversalCamera | undefined>(undefined);
@@ -95,6 +98,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       id: "reference",
     });
   const [sky, setSky] = useState<MapSkybox>({ preset: "blue-day" }),
+    [sun,setSun]=useState<MapSun>({enabled:true,x:18,y:32,z:-18,color:"#fff0d6",intensity:2.1}),
     skyFile = useRef<ArrayBuffer | undefined>(undefined),
     [status, setStatus] = useState("Import a GLB to begin."),
     [exporting, setExporting] = useState<{ stage: string; progress: number }>();
@@ -106,7 +110,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       ? reference.current
       : choice.kind === "spawn"
         ? spawnNodes.current.get(choice.id)
-        : lightNodes.current.get(choice.id);
+        : choice.kind === "light" ? lightNodes.current.get(choice.id) : sunNode.current;
   };
   const attach = () => gizmos.current?.attachToNode(selectedNode() ?? null);
   const commitSelected = () => {
@@ -147,6 +151,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
             : l,
         ),
       );
+    if(choice.kind==="sun")setSun(v=>({...v,x:+node.position.x.toFixed(3),y:+node.position.y.toFixed(3),z:+node.position.z.toFixed(3)}));
   };
   useEffect(() => {
     const engine = new Engine(canvas.current!, true),
@@ -165,6 +170,9 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     camera.minZ = 0.03;
     ambient.current = new HemisphericLight("ambient", Vector3.Up(), s);
     ambient.current.intensity = 0.9;
+    const sn=(sunNode.current=new TransformNode("map-sun",s)),marker=MeshBuilder.CreateSphere("map-sun-marker",{diameter:1},s),sm=new StandardMaterial("map-sun-marker-material",s);
+    sm.emissiveColor=Color3.FromHexString("#fff0d6");marker.material=sm;marker.parent=sn;marker.metadata={editor:{kind:"sun",id:"sun"}};sn.position.set(18,32,-18);
+    sunLight.current=new DirectionalLight("authored-sun",sn.position.scale(-1).normalize(),s);sunLight.current.position.copyFrom(sn.position);
     const ground = MeshBuilder.CreateGround(
         "editor-grid",
         { width: 100, height: 100 },
@@ -318,6 +326,14 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     }
     attach();
   }, [lights, selected]);
+  useEffect(()=>{
+    const node=sunNode.current,light=sunLight.current;if(!node||!light)return;
+    node.position.set(sun.x,sun.y,sun.z);light.position.copyFrom(node.position);
+    light.direction=node.position.lengthSquared()>.001?node.position.scale(-1).normalize():new Vector3(-.45,-.85,.32);
+    light.diffuse=Color3.FromHexString(sun.color);light.intensity=sun.intensity;light.setEnabled(sun.enabled);node.setEnabled(sun.enabled);
+    const material=node.getChildMeshes()[0]?.material as StandardMaterial|undefined;if(material)material.emissiveColor=Color3.FromHexString(sun.color);
+    if(selected.kind==="sun")attach();
+  },[sun,selected]);
   useEffect(() => {
     const s = scene.current;
     if (!s) return;
@@ -386,6 +402,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
           ? project.sky
           : { preset: "blue-day" },
       );
+      setSun(project.sun&&typeof project.sun.x==="number"?project.sun:{enabled:true,x:18,y:32,z:-18,color:"#fff0d6",intensity:2.1});
       const [skyEntry] = zip.file(/skybox\.env$/i);
       skyFile.current = skyEntry
         ? await skyEntry.async("arraybuffer")
@@ -576,6 +593,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
           asset:
             sky.preset === "custom" ? `/maps/${mapId}/skybox.env` : undefined,
         },
+        sun,
       };
       const project = {
         version: 1,
@@ -586,6 +604,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
         spawns,
         lights,
         sky,
+        sun,
       };
       const zip = new JSZip(),
         folder = zip.folder(mapId)!;
@@ -808,7 +827,14 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
           ))}
         </section>
         <section>
-          <h2>3 · Skybox</h2>
+          <h2>3 · Sun & Skybox</h2>
+          <button className={selected.kind==="sun"?"selected":""} onClick={()=>selectObject("sun","sun")}>SELECT SUN POSITION</button>
+          <label><input type="checkbox" checked={sun.enabled} onChange={e=>setSun(v=>({...v,enabled:e.target.checked}))}/> Directional sun enabled</label>
+          <div className="row">
+            <label>Sun color<input type="color" value={sun.color} onChange={e=>setSun(v=>({...v,color:e.target.value}))}/></label>
+            <label>Intensity<select value={sun.intensity} onChange={e=>setSun(v=>({...v,intensity:+e.target.value}))}>{SUN_INTENSITIES.map(value=><option key={value} value={value}>{value===.4?"Moonlight":value===.8?"Low":value===1.2?"Soft":value===2.1?"Daylight":"Bright"} · {value}</option>)}</select></label>
+          </div>
+          <button onClick={()=>{setSky({preset:"night"});setSun(v=>({...v,enabled:true,color:"#9bbcff",intensity:.4}))}}>APPLY NIGHT PRESET</button>
           <label>
             Environment
             <select

@@ -1,4 +1,4 @@
-Collateral Engine v2.4.1 - Combined-animation reset and stair traversal
+Collateral Engine v2.5.2 - Moving reload audio emitters
 
 - Axis and rotation gizmos for the player reference, spawns, and lights
 - Map clicks no longer reposition the reference capsule
@@ -51,3 +51,17 @@ Collateral Engine v2.4.1 - Combined-animation reset and stair traversal
 - Scoreboard includes synchronized deaths
 - Mode, kill-limit and clock changes refresh lobby rules immediately
 - Precision gizmo snapping and exact per-axis nudge controls in the framer
+- Weighted ground acceleration with firm braking and preserved stair traversal
+- Model-authored Glock idle/fire/reload clips restored
+- Third-person weapon changes attach immediately without a floating draw-in
+- Restrained, visible sprint carry and a stronger blood-hit burst
+- Carbine/Glock role and ballistic balance pass
+- Reload audio follows moving remote players; local reloads remain listener-centered
+- Cancellable per-player reload audio and corrected HRTF left/right orientation
+- Preloaded equipped weapon models and sounds to remove first-switch hitches
+- Neutral anti-camp deathmatch spawns with one-second visible spawn protection
+- Hidden corpse-to-spawn transitions, blood hit particles, and scoreboard ping
+- Rebindable scoreboard control and compact pistol switch raise
+- Map-authored moveable sun, intensity presets, night preset, and legacy daylight fallback
+- Weapon-framer sound restoration with visible imported filenames
+- Updated procedural Glock profile and balanced per-weapon ammunition/rules

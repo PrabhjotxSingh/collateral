@@ -145,6 +145,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       Record<PoseMode, Partial<Record<AnimationAction, AnimationBinding>>>
     >({ "first-person": {}, "third-person": {} }),
     [fingers, setFingers] = useState<string[]>([]),
+    [audioNames,setAudioNames]=useState({shotSound:"",reloadSound:""}),
     [exporting, setExporting] = useState(false);
   const previewPlayer = useRef<ClipPlayer | undefined>(undefined),
     proceduralFrame = useRef(0),
@@ -858,6 +859,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       if (world) await load("world", world);
       if (shot) files.current.shotSound = shot;
       if (reload) files.current.reloadSound = reload;
+      setAudioNames({shotSound:shot?.name??"",reloadSound:reload?.name??""});
       setAds(structuredClone(manifest.firstPerson.ads));
       setAnimationMap({"first-person":manifest.firstPerson.animations??{},"third-person":manifest.thirdPerson.animations??{}});
       hip.current = structuredClone(manifest.firstPerson.weapon);
@@ -994,9 +996,10 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
           accept="audio/*,.ogg,.mp3,.wav"
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) files.current[kind] = file;
+            if (file) { files.current[kind] = file;setAudioNames(v=>({...v,[kind]:file.name})); }
           }}
         />
+        <small>{audioNames[kind]||"No sound loaded"}</small>
       </label>
     );
   }

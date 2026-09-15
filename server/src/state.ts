@@ -26,6 +26,8 @@ export class PlayerState extends Schema {
   ack = 0;
   kills = 0;
   deaths = 0;
+  ping = 0;
+  spawnProtected = false;
 }
 defineTypes(PlayerState, {
   id: "string",
@@ -53,6 +55,8 @@ defineTypes(PlayerState, {
   ack: "number",
   kills: "number",
   deaths: "number",
+  ping: "number",
+  spawnProtected: "boolean",
 });
 export class GameState extends Schema {
   players = new MapSchema<PlayerState>();

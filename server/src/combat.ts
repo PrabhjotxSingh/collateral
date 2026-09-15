@@ -56,7 +56,7 @@ export function traceShot(
   for (const box of map.walls)
     distance = Math.min(distance, rayBox(origin, dir, box));
   for (const player of players) {
-    if (player.id === shooter.id || player.health <= 0 || !player.connected)
+    if (player.id === shooter.id || player.health <= 0 || !player.connected || player.spawnProtected)
       continue;
     const height = player.crouch ? RULES.crouchHeight : RULES.height;
     const headY = player.y + height - RULES.headTopInset - RULES.headHeight / 2;

@@ -20,8 +20,8 @@ test('bob follows footfall phase, strafe blends diagonally, ADS/reload suppress 
  const reload=advance(a,{...moving,reloading:true},2);assert.ok(Math.abs(reload.roll)<1e-5);assert.ok(Math.abs(reload.y+.17)<1e-5);
  const neutral=advance(a,{...base,stepPhase:.5},2);assert.ok(Math.abs(neutral.x-.18)<1e-5);
 });
-test('sprint carry raises smoothly, landing dip is capped, recoil stacks and settles',()=>{
- const m=new ViewmodelMotion(),sprint=advance(m,{...base,sprint:true,vz:5.2},1);assert.equal(sprint.sprint,1);assert.ok(sprint.y<-.28);assert.ok(sprint.pitch>.45);
+test('sprint carry stays visible, landing dip is capped, recoil stacks and settles',()=>{
+ const m=new ViewmodelMotion(),sprint=advance(m,{...base,sprint:true,vz:5.2},1);assert.equal(sprint.sprint,1);assert.ok(sprint.y<-.19&&sprint.y>-.25);assert.ok(sprint.pitch>.1&&sprint.pitch<.3);
  const one=m.update(base,1/60);assert.ok(one.sprint>0&&one.sprint<1);const raised=advance(m,base,.25);assert.equal(raised.sprint,0);
  m.update({...base,grounded:false,vy:4.3},1/60);assert.ok(m.update({...base,grounded:false,vy:-15},1/60).y<-.17);
  const landing=m.update(base,1/60);assert.ok(landing.y<-.17&&landing.y>-.2);
