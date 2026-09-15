@@ -97,7 +97,6 @@
     "adsFov": 0.82,
     "previewFov": 95,
     "proceduralMotion": true,
-    "proceduralSprint": true,
     "fingers": {},
     "animations": {
       "idle": {

@@ -1,5 +1,5 @@
 import { blendFrame } from "../../shared/weapon-transforms";
-import { usesProcedural } from "../../shared/weapons";
+import { usesProcedural, usesProceduralMotion } from "../../shared/weapons";
 import { DevTools } from "./dev-tools";
 import { daylight, applyMapSun } from "./lighting";
 import {
@@ -893,7 +893,9 @@ export class Game {
         reloading: me.reloading,
         stepPhase: me.stepPhase ?? 0,
         lookActive: this.locked,
-        proceduralIdle: usesProcedural(this.currentManifest?.firstPerson.animations?.idle, !!this.weapon?.clips.has("idle")),
+        proceduralIdle: this.currentManifest
+          ? usesProceduralMotion(this.currentManifest.firstPerson, !!this.weapon?.clips.has("idle"))
+          : true,
       },
       dt,
     );

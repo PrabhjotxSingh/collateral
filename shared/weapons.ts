@@ -61,6 +61,8 @@ export interface WeaponManifest {
     adsFov: number;
     fingers: Record<string, { x: number; y: number; z: number; w: number }>;
     animations?: Partial<Record<WeaponAnimationAction, AnimationBinding>>;
+    /** Layer camera/movement-driven sway, bob, inertia and sprint carry over the selected clips. */
+    proceduralMotion?: boolean;
     /** True when transforms were authored camera-relative in Collateral Engine. */
     editorFramed?: boolean;
     /** Editor preview FOV; informative only, player settings remain authoritative. */
@@ -83,6 +85,9 @@ export const PROCEDURAL_ANIMATION = "@collateral-built-in";
 export const NO_ANIMATION = "@collateral-none";
 export function usesProcedural(binding: AnimationBinding | undefined, hasClip = false) {
   return binding === PROCEDURAL_ANIMATION || (binding === undefined && !hasClip);
+}
+export function usesProceduralMotion(firstPerson: WeaponManifest["firstPerson"], hasIdleClip = false) {
+  return firstPerson.proceduralMotion ?? usesProcedural(firstPerson.animations?.idle, hasIdleClip);
 }
 export type WeaponAnimationAction =
   | "idle"

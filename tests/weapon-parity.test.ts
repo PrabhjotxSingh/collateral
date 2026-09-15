@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {Animation,AnimationGroup,NullEngine,Scene,TransformNode,Vector3,Quaternion,Matrix} from "@babylonjs/core";
 import {blendFrame,frameMatrix,applyMatrix,readFrame} from "../shared/weapon-transforms.js";
 import {ClipPlayer} from "../client/src/animation.js";
-import {usesProcedural} from "../shared/weapons.js";
+import {usesProcedural,usesProceduralMotion} from "../shared/weapons.js";
 import {Assets} from "../client/src/assets.js";
 import {loadHeadlessModel} from "./model-helper.js";
 import {readFileSync} from "node:fs";
@@ -35,6 +35,8 @@ test("one timeline supports independent frame ranges; explicit model/none never 
   assert.equal(usesProcedural("missing",false),false);
   assert.equal(usesProcedural("@collateral-none",false),false);
   assert.equal(usesProcedural("@collateral-built-in",true),true);
+  assert.equal(usesProceduralMotion({...({} as any),proceduralMotion:true,animations:{idle:{clip:"Scene",from:468,to:468}}},true),true);
+  assert.equal(usesProceduralMotion({...({} as any),proceduralMotion:false,animations:{idle:"@collateral-built-in"}},false),false);
   p.dispose();
  }finally{s.dispose();e.dispose();}
 });

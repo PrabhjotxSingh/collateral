@@ -132,6 +132,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     [ads, setAds] = useState<Transform>(identity()),
     [adsFov, setAdsFov] = useState(0.82),
     [previewFov, setPreviewFov] = useState(95),
+    [proceduralMotion, setProceduralMotion] = useState(true),
     [aiming, setAiming] = useState(false),
     [testing, setTesting] = useState(false),
     [status, setStatus] = useState(
@@ -810,6 +811,10 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
       setAds(structuredClone(manifest.firstPerson.ads));
       setAdsFov(manifest.firstPerson.adsFov);
       setPreviewFov(manifest.firstPerson.previewFov ?? 95);
+      setProceduralMotion(
+        manifest.firstPerson.proceduralMotion ??
+          manifest.firstPerson.animations?.idle === BUILTIN_ANIMATION,
+      );
       setAnimationMap({
         "first-person": Object.fromEntries(
           (["idle", "draw", "fire", "reload"] as AnimationAction[]).map(
@@ -1159,6 +1164,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
               .map(([key, value]) => [key.slice(3), value]),
           ),
           animations: animationMap["first-person"],
+          proceduralMotion,
           editorFramed: true,
           previewFov,
         },
@@ -1250,6 +1256,22 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         Map animation clips embedded in this GLB to the actions used by the
         game. Select one source per action, or split a combined timeline using Start / End frames (Babylon imported frame numbers).
       </p>
+      {targetMode === "first-person" && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={proceduralMotion}
+            onChange={(event) => setProceduralMotion(event.target.checked)}
+          />
+          Layer procedural movement (sway, walk bob, inertia and sprint carry)
+        </label>
+      )}
+      {targetMode === "first-person" && (
+        <p>
+          This is independent of the four action mappings below. Keep it enabled
+          to use model fire/reload clips together with Collateral movement.
+        </p>
+      )}
       {!clips[targetMode].length && (
         <p className="warning">Load the model to inspect its animations.</p>
       )}

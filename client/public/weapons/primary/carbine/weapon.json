@@ -108,7 +108,8 @@
       }
     },
     "editorFramed": true,
-    "previewFov": 95
+    "previewFov": 95,
+    "proceduralMotion": true
   },
   "thirdPerson": {
     "space": "socket",

@@ -1,4 +1,4 @@
-Collateral Engine v2.5.2 - Moving reload audio emitters
+Collateral Engine v2.5.3 - Independent procedural weapon motion
 
 - Axis and rotation gizmos for the player reference, spawns, and lights
 - Map clicks no longer reposition the reference capsule
