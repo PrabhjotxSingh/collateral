@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "id": "ak47",
+  "name": "AK47",
+  "slot": "primary",
+  "assets": {
+    "view": "view.glb",
+    "world": "world.glb",
+    "shotSound": "shot.mp3",
+    "reloadSound": "reload.ogg"
+  },
+  "gameplay": {
+    "damage": 34,
+    "headshotMultiplier": 3,
+    "range": 80,
+    "rpm": 600,
+    "fireMode": "auto",
+    "magazine": 30,
+    "reserve": 90,
+    "reloadSeconds": 2.4,
+    "spread": {
+      "standing": 0.0022,
+      "moving": 0.028,
+      "crouched": 0.0014,
+      "ads": 0.0008
+    },
+    "recoil": {
+      "pitch": 2.1,
+      "yaw": 0.7,
+      "recovery": 8.5
+    }
+  },
+  "effects": {
+    "muzzle": {
+      "firstPerson": {
+        "x": -0.09714801609516144,
+        "y": 13.088994026184082,
+        "z": 75.885986328125,
+        "pitch": 0,
+        "yaw": 0,
+        "roll": 0,
+        "scale": 1
+      },
+      "thirdPerson": {
+        "x": 0.7621428966522217,
+        "y": 13.012800216674805,
+        "z": 78.5369644165039,
+        "pitch": 1.8783051624464598e-8,
+        "yaw": 5.32432359796513e-7,
+        "roll": 6.388662198804343e-8,
+        "scale": 1
+      }
+    },
+    "flash": {
+      "color": "#ffd28a",
+      "size": 0.09,
+      "intensity": 2.4,
+      "duration": 0.045
+    },
+    "tracer": {
+      "color": "#ffd7a0",
+      "width": 0.012,
+      "length": 1.4,
+      "speed": 160,
+      "smoke": true
+    }
+  },
+  "firstPerson": {
+    "arms": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "pitch": 0,
+      "yaw": 0,
+      "roll": 0,
+      "scale": 1
+    },
+    "weapon": {
+      "x": 0.22073069214820862,
+      "y": -0.20818164944648743,
+      "z": 0.23193873465061188,
+      "pitch": 0,
+      "yaw": 0,
+      "roll": 0,
+      "scale": 0.008693917654454708
+    },
+    "ads": {
+      "x": -0.00006949059752514586,
+      "y": -0.16518156230449677,
+      "z": 0.14193831384181976,
+      "pitch": 0,
+      "yaw": 0,
+      "roll": 0,
+      "scale": 0.008693917654454708
+    },
+    "adsFov": 0.82,
+    "fingers": {},
+    "animations": {
+      "idle": "@collateral-built-in",
+      "draw": "@collateral-built-in",
+      "fire": "@collateral-built-in",
+      "reload": {
+        "clip": "allanims",
+        "from": 0,
+        "to": 195,
+        "speed": 1
+      }
+    },
+    "proceduralMotion": true,
+    "editorFramed": true,
+    "previewFov": 95
+  },
+  "thirdPerson": {
+    "space": "socket",
+    "characterId": "swat",
+    "holding": {
+      "preset": "rifle",
+      "arms": {
+        "mixamorig:LeftShoulder": {
+          "x": 0.6473323194778954,
+          "y": 0.7141789216811087,
+          "z": -0.17561797192357276,
+          "w": -0.20016908833091082
+        },
+        "mixamorig:LeftArm": {
+          "x": -0.2764742617623526,
+          "y": -0.5380624663971982,
+          "z": 0.6464420931880919,
+          "w": 0.46493374258288095
+        },
+        "mixamorig:LeftForeArm": {
+          "x": -0.07916389893975527,
+          "y": -0.6200394263411577,
+          "z": 0.35405010652561814,
+          "w": 0.6956527215187064
+        },
+        "mixamorig:LeftHand": {
+          "x": -0.10112780491845115,
+          "y": -0.4399304106624887,
+          "z": -0.379766458615573,
+          "w": 0.8074724996910396
+        },
+        "mixamorig:RightShoulder": {
+          "x": 0.48670987855308184,
+          "y": -0.5355081729930155,
+          "z": 0.5163625048261905,
+          "w": 0.45794568934115915
+        },
+        "mixamorig:RightArm": {
+          "x": 0.3362613347208547,
+          "y": 0.06824039318525979,
+          "z": -0.7010155332225468,
+          "w": 0.6251790029186673
+        },
+        "mixamorig:RightForeArm": {
+          "x": 0.1666484427065278,
+          "y": -0.018116462489083572,
+          "z": -0.5783456108596335,
+          "w": 0.7983836450790861
+        },
+        "mixamorig:RightHand": {
+          "x": -0.21971362862352078,
+          "y": 0.3882006114616823,
+          "z": 0.17006966497326992,
+          "w": 0.8786936415575917
+        }
+      },
+      "supportHand": {
+        "enabled": true,
+        "target": {
+          "x": -11.978198051452637,
+          "y": 25.748905181884766,
+          "z": 27.430570602416992,
+          "pitch": -65.4317308191014,
+          "yaw": 129.51491175617568,
+          "roll": -74.37000663933742,
+          "scale": 0.9999968358504779
+        },
+        "orient": true
+      }
+    },
+    "character": {
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "pitch": 0,
+      "yaw": 0,
+      "roll": 0,
+      "scale": 1
+    },
+    "weapon": {
+      "x": -0.030527273193001747,
+      "y": -0.00002104948907799553,
+      "z": -0.02338692545890808,
+      "pitch": -2.4693553570305578,
+      "yaw": -0.00006137798691935819,
+      "roll": 0.0000904290839456978,
+      "scale": 0.008633101359027787
+    },
+    "fingers": {},
+    "animations": {}
+  }
+}

@@ -75,6 +75,11 @@ export class GameState extends Schema {
   gameMode: GameMode = "elimination";
   killLimit = 20;
   matchSeconds = 600;
+  ticketLimit = 100;
+  zoneTeam = "";
+  zoneAdvantage = 0;
+  zoneA = 0;
+  zoneB = 0;
 }
 defineTypes(GameState, {
   players: { map: PlayerState },
@@ -93,4 +98,9 @@ defineTypes(GameState, {
   gameMode: "string",
   killLimit: "number",
   matchSeconds: "number",
+  ticketLimit: "number",
+  zoneTeam: "string",
+  zoneAdvantage: "number",
+  zoneA: "number",
+  zoneB: "number",
 });

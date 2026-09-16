@@ -70,6 +70,7 @@ export class Game {
   private audio: TacticalAudio;
   private physics: CosmeticPhysics;
   private mapModel?: TransformNode;
+  private kingZone?: Mesh;
   private kick = 0;
   private motion = new ViewmodelMotion();
   private cancelSprint = false;
@@ -164,6 +165,7 @@ export class Game {
     this.gun.position.set(0.18, -0.17, 0.4);
     this.gun.material = this.material("gun", new Color3(0.12, 0.13, 0.14));
     this.assets = new Assets(this.scene);
+    void this.assets.preload(ASSETS.player,ASSETS.playerB);
     this.audio = new TacticalAudio(() => this.settings);
     this.physics = new CosmeticPhysics(this.scene);
     this.effects = new ShotEffects(this.scene);
@@ -380,7 +382,7 @@ export class Game {
       return;
     if(me.ammo<=0){
       const cadence=60/(this.currentManifest?.gameplay.rpm??480),now=performance.now()/1000;
-      if(now-this.emptyClickAt>=cadence){this.emptyClickAt=now;this.audio.play("empty");}
+      if(now-this.emptyClickAt>=cadence){this.emptyClickAt=now;this.audio.play("empty");window.dispatchEvent(new Event("game-empty"));}
       return;
     }
     const shotId = this.prediction.request(
@@ -422,7 +424,7 @@ export class Game {
     this.reloadWasActive=false;this.shotAnimRemaining=0;
     this.weapon?.clips.settleIdle();
     this.bakedDraw =
-      this.weapon?.clips.play("draw", false, DRAW_SECONDS) ?? false;
+      this.weapon?.clips.play("draw", false) ?? false;
   }
   private material(name: string, color: Color3) {
     const m = new StandardMaterial(name, this.scene);
@@ -436,6 +438,7 @@ export class Game {
     // update() during this async load can never start a second loadMap for it.
     this.mapId = id;
     this.mapModel?.dispose();
+    this.kingZone?.dispose();this.kingZone=undefined;
     for (const mesh of this.environment) mesh.dispose();
     this.environment = [];
     for (const light of this.mapLights) light.dispose();
@@ -445,6 +448,8 @@ export class Game {
     const map = mapById(id);
     this.applySkybox(map.skybox?.preset ?? "blue-day", map.skybox?.asset);
     applyMapSun(this.scene,map.sun);
+    const zone=map.kingZone??(map.bounds?{x:(map.bounds.minX+map.bounds.maxX)/2,y:0,z:(map.bounds.minZ+map.bounds.maxZ)/2,radius:4,height:.08}:undefined);
+    if(zone){const ring=this.kingZone=MeshBuilder.CreateCylinder("king-of-the-hill-zone",{height:.06,diameter:zone.radius*2,tessellation:64},this.scene),mat=this.material("king-of-the-hill-zone-material",new Color3(.25,.65,1));ring.position.set(zone.x,zone.y+.035,zone.z);mat.alpha=.28;mat.emissiveColor=new Color3(.12,.38,.72);mat.backFaceCulling=false;ring.material=mat;ring.isPickable=false;for(let i=0;i<14;i++){const mote=MeshBuilder.CreateSphere(`hill-mote-${i}`,{diameter:.045+(i%3)*.015},this.scene);mote.parent=ring;mote.position.set(Math.sin(i/14*Math.PI*2)*zone.radius*.92,.12+(i%5)*.13,Math.cos(i/14*Math.PI*2)*zone.radius*.92);mote.material=mat;mote.isPickable=false;}ring.setEnabled(false);}
     if (map.triangles) {
       // The same baked surface used by the server also supplies a safe fallback
       // and Havok casing collision; no obsolete greybox walls remain.
@@ -486,7 +491,8 @@ export class Game {
       void this.physics.setMap(this.environment);
     }
     const root = (this.mapModel = new TransformNode("map-model", this.scene));
-    root.position.y = map.offsetY ?? 0;
+    root.position.set(map.offsetX ?? 0, map.offsetY ?? 0, map.offsetZ ?? 0);
+    root.rotation.y = map.rotationY ?? 0;
     root.scaling.setAll(map.scale ?? 1);
     const placeholders = [...this.environment];
     for (const source of map.lights ?? []) {
@@ -626,7 +632,7 @@ export class Game {
         root.parent = mesh;
         root.position.y = -RULES.height / 2;
         void this.assets
-          .instance(ASSETS.player, root, undefined, {
+          .instance(p.team==="B"?ASSETS.playerB:ASSETS.player, root, undefined, {
             characterHeight: RULES.height,
           })
           .then((loaded) => {
@@ -671,6 +677,9 @@ export class Game {
     }
     const me = this.state.players[this.network.match?.sessionId ?? ""];
     if (!me) return;
+    if(this.kingZone){this.kingZone.setEnabled(this.state.gameMode==="king-of-the-hill");this.kingZone.rotation.y+=dt*.22;const mat=this.kingZone.material as StandardMaterial;if(this.state.zoneTeam==="A"){mat.diffuseColor=new Color3(.18,.58,1);mat.emissiveColor=new Color3(.08,.35,.85);}else if(this.state.zoneTeam==="B"){mat.diffuseColor=new Color3(1,.42,.12);mat.emissiveColor=new Color3(.8,.18,.04);}else{mat.diffuseColor=new Color3(.5,.55,.58);mat.emissiveColor=new Color3(.18,.22,.25);}}
+    const map=mapById(this.state.mapId),zone=map.kingZone??(map.bounds?{x:(map.bounds.minX+map.bounds.maxX)/2,y:0,z:(map.bounds.minZ+map.bounds.maxZ)/2,radius:4,height:3}:undefined),inHill=!!zone&&this.state.gameMode==="king-of-the-hill"&&Math.hypot(me.x-zone.x,me.z-zone.z)<=zone.radius;
+    document.body.classList.toggle("in-king-zone",inHill);
     if (this.switchElapsed > 0) {
       this.switchElapsed = Math.max(0, this.switchElapsed - dt);
       if (!this.switchLoaded && this.switchElapsed <= 0.25) {
@@ -817,12 +826,11 @@ export class Game {
       if (p.crouch && actor?.clips.has("crouch"))
         action = moving ? "crouchWalk" : "crouch";
       if (!p.grounded) action = "jump";
-      if (actor && !actor.clips.has(action)) action = "idle";
+      if (actor && !actor.clips.has(action)) action = p.crouch&&actor.clips.has("crouch")?"crouch":"idle";
       if (!dead) {
-        const enteredCrouch = p.crouch && !this.crouchedActors.has(id);
         if (p.crouch) this.crouchedActors.add(id);
         else this.crouchedActors.delete(id);
-        actor?.clips.play(action, true, undefined, enteredCrouch);
+        actor?.clips.play(action, true);
         if (p.reloading) {
           if (!this.actorReloading.has(id)) {
             this.actorReloading.add(id);

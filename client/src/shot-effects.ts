@@ -290,14 +290,20 @@ export class ShotEffects {
     }
   }
   blood(position: Vector3, direction: Vector3) {
-    for(let i=0;i<18;i++)this.puff(
+    for(let i=0;i<36;i++)this.puff(
       position,
-      direction.scale(-.16-Math.random()*.16).add(new Vector3((Math.random()-.5)*1.15,Math.random()*.75-.08,(Math.random()-.5)*1.15)),
-      .025+Math.random()*.04,
-      .32+Math.random()*.28,
-      i%4===0?new Color3(.48,.018,.012):new Color3(.23,.006,.004),
-      .82,
+      direction.scale(-.25-Math.random()*.42).add(new Vector3((Math.random()-.5)*1.75,Math.random()*1.15-.12,(Math.random()-.5)*1.75)),
+      .035+Math.random()*.07,
+      .42+Math.random()*.48,
+      i%3===0?new Color3(.68,.012,.008):new Color3(.31,.002,.002),
+      .95,
     );
+    for(let i=0;i<5;i++){
+      const splash=MeshBuilder.CreateDisc(`blood-splatter-${i}`,{radius:.08+Math.random()*.12,tessellation:9},this.scene),normal=direction.scale(-1).add(new Vector3((Math.random()-.5)*.5,(Math.random()-.5)*.5,(Math.random()-.5)*.5)).normalize();
+      splash.position.copyFrom(position.add(normal.scale(.015+i*.004)));splash.rotationQuaternion=Quaternion.FromLookDirectionLH(normal,Math.abs(Vector3.Dot(normal,Vector3.Up()))>.95?Vector3.Right():Vector3.Up());splash.isPickable=false;
+      const mat=this.material(`blood-splatter-material-${i}`,i%2?new Color3(.28,.002,.002):new Color3(.55,.006,.004),this.soft);splash.material=mat;
+      this.add({age:0,life:.85,tick:t=>{splash.scaling.setAll(1+t*1.2);mat.alpha=.9*(1-t/.85);},dispose:()=>{splash.dispose();mat.dispose();}});
+    }
   }
   private impactMark(position:Vector3,direction:Vector3){
     // Sample the rendered surface just around the authoritative hit point. The

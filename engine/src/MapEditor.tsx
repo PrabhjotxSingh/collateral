@@ -20,14 +20,25 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import JSZip from "jszip";
-import { SUN_INTENSITIES, type GameMap, type MapLight, type MapSkybox, type MapSun, type Spawn } from "../../shared/maps";
+import {
+  SUN_INTENSITIES,
+  type GameMap,
+  type KingZone,
+  type MapLight,
+  type MapSkybox,
+  type MapSun,
+  type Spawn,
+} from "../../shared/maps";
 import { makeBody, moveBody, type Body } from "../../shared/simulation";
 import { RULES } from "../../shared/rules";
 import type { Input } from "../../shared/protocol";
 import "./style.css";
 type Team = "A" | "B";
 type SpawnMarker = Spawn & { id: string; team: Team };
-type Selected = { kind: "reference" | "spawn" | "light" | "sun"; id: string };
+type Selected = {
+  kind: "map" | "reference" | "spawn" | "light" | "sun" | "king-zone";
+  id: string;
+};
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 const cleanId = (s: string) =>
   s
@@ -72,6 +83,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     lightNodes = useRef(new Map<string, TransformNode>()),
     sunNode = useRef<TransformNode | undefined>(undefined),
     sunLight = useRef<DirectionalLight | undefined>(undefined),
+    kingNode = useRef<TransformNode | undefined>(undefined),
     ambient = useRef<HemisphericLight | undefined>(undefined);
   const arcCamera = useRef<ArcRotateCamera | undefined>(undefined),
     testCamera = useRef<UniversalCamera | undefined>(undefined);
@@ -89,7 +101,10 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
   const [name, setName] = useState("New map"),
     [id, setId] = useState("new-map"),
     [scale, setScale] = useState(1),
+    [offsetX, setOffsetX] = useState(0),
     [offsetY, setOffsetY] = useState(0),
+    [offsetZ, setOffsetZ] = useState(0),
+    [rotationY, setRotationY] = useState(0),
     [cursor, setCursor] = useState({ x: 0, y: 0, z: 0, yaw: 0 });
   const [spawns, setSpawns] = useState<SpawnMarker[]>([]),
     [lights, setLights] = useState<MapLight[]>([]),
@@ -98,7 +113,15 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       id: "reference",
     });
   const [sky, setSky] = useState<MapSkybox>({ preset: "blue-day" }),
-    [sun,setSun]=useState<MapSun>({enabled:true,x:18,y:32,z:-18,color:"#fff0d6",intensity:2.1}),
+    [kingZone, setKingZone] = useState<KingZone | undefined>(),
+    [sun, setSun] = useState<MapSun>({
+      enabled: true,
+      x: 18,
+      y: 32,
+      z: -18,
+      color: "#fff0d6",
+      intensity: 2.1,
+    }),
     skyFile = useRef<ArrayBuffer | undefined>(undefined),
     [status, setStatus] = useState("Import a GLB to begin."),
     [exporting, setExporting] = useState<{ stage: string; progress: number }>();
@@ -106,17 +129,29 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
   selectedRef.current = selected;
   const selectedNode = () => {
     const choice = selectedRef.current;
-    return choice.kind === "reference"
-      ? reference.current
-      : choice.kind === "spawn"
-        ? spawnNodes.current.get(choice.id)
-        : choice.kind === "light" ? lightNodes.current.get(choice.id) : sunNode.current;
+    return choice.kind === "map"
+      ? root.current
+      : choice.kind === "reference"
+        ? reference.current
+        : choice.kind === "spawn"
+          ? spawnNodes.current.get(choice.id)
+          : choice.kind === "light"
+            ? lightNodes.current.get(choice.id)
+            : choice.kind === "king-zone"
+              ? kingNode.current
+              : sunNode.current;
   };
   const attach = () => gizmos.current?.attachToNode(selectedNode() ?? null);
   const commitSelected = () => {
     const node = selectedNode(),
       choice = selectedRef.current;
     if (!node) return;
+    if (choice.kind === "map") {
+      setOffsetX(+node.position.x.toFixed(3));
+      setOffsetY(+node.position.y.toFixed(3));
+      setOffsetZ(+node.position.z.toFixed(3));
+      setRotationY(+node.rotation.y.toFixed(4));
+    }
     if (choice.kind === "reference")
       setCursor({
         x: +node.position.x.toFixed(3),
@@ -151,7 +186,24 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
             : l,
         ),
       );
-    if(choice.kind==="sun")setSun(v=>({...v,x:+node.position.x.toFixed(3),y:+node.position.y.toFixed(3),z:+node.position.z.toFixed(3)}));
+    if (choice.kind === "sun")
+      setSun((v) => ({
+        ...v,
+        x: +node.position.x.toFixed(3),
+        y: +node.position.y.toFixed(3),
+        z: +node.position.z.toFixed(3),
+      }));
+    if (choice.kind === "king-zone")
+      setKingZone((v) =>
+        v
+          ? {
+              ...v,
+              x: +node.position.x.toFixed(3),
+              y: +node.position.y.toFixed(3),
+              z: +node.position.z.toFixed(3),
+            }
+          : v,
+      );
   };
   useEffect(() => {
     const engine = new Engine(canvas.current!, true),
@@ -170,9 +222,20 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     camera.minZ = 0.03;
     ambient.current = new HemisphericLight("ambient", Vector3.Up(), s);
     ambient.current.intensity = 0.9;
-    const sn=(sunNode.current=new TransformNode("map-sun",s)),marker=MeshBuilder.CreateSphere("map-sun-marker",{diameter:1},s),sm=new StandardMaterial("map-sun-marker-material",s);
-    sm.emissiveColor=Color3.FromHexString("#fff0d6");marker.material=sm;marker.parent=sn;marker.metadata={editor:{kind:"sun",id:"sun"}};sn.position.set(18,32,-18);
-    sunLight.current=new DirectionalLight("authored-sun",sn.position.scale(-1).normalize(),s);sunLight.current.position.copyFrom(sn.position);
+    const sn = (sunNode.current = new TransformNode("map-sun", s)),
+      marker = MeshBuilder.CreateSphere("map-sun-marker", { diameter: 1 }, s),
+      sm = new StandardMaterial("map-sun-marker-material", s);
+    sm.emissiveColor = Color3.FromHexString("#fff0d6");
+    marker.material = sm;
+    marker.parent = sn;
+    marker.metadata = { editor: { kind: "sun", id: "sun" } };
+    sn.position.set(18, 32, -18);
+    sunLight.current = new DirectionalLight(
+      "authored-sun",
+      sn.position.scale(-1).normalize(),
+      s,
+    );
+    sunLight.current.position.copyFrom(sn.position);
     const ground = MeshBuilder.CreateGround(
         "editor-grid",
         { width: 100, height: 100 },
@@ -264,8 +327,12 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
   }, []);
   useEffect(() => {
     root.current?.scaling.setAll(scale);
-    if (root.current) root.current.position.y = offsetY;
-  }, [scale, offsetY]);
+    if (root.current) {
+      root.current.position.set(offsetX, offsetY, offsetZ);
+      root.current.rotation.y = rotationY;
+    }
+    if (selected.kind === "map") attach();
+  }, [scale, offsetX, offsetY, offsetZ, rotationY, selected]);
   useEffect(() => {
     const n = reference.current;
     if (!n) return;
@@ -292,6 +359,16 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       body.material = mat;
       body.parent = n;
       body.position.y = 0.9;
+      const facing = MeshBuilder.CreateBox(
+          `${spawn.id}-facing`,
+          { width: 0.055, height: 0.055, depth: 0.9 },
+          s,
+        ),
+        facingMat = new StandardMaterial(`${spawn.id}-facing-material`, s);
+      facingMat.emissiveColor = new Color3(0.2, 0.72, 1);
+      facing.material = facingMat;
+      facing.parent = n;
+      facing.position.set(0, 0.08, 0.55);
       body.metadata = { editor: { kind: "spawn", id: spawn.id } };
       n.position.set(spawn.x, spawn.y ?? 0, spawn.z);
       n.rotation.y = spawn.yaw;
@@ -326,14 +403,54 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     }
     attach();
   }, [lights, selected]);
-  useEffect(()=>{
-    const node=sunNode.current,light=sunLight.current;if(!node||!light)return;
-    node.position.set(sun.x,sun.y,sun.z);light.position.copyFrom(node.position);
-    light.direction=node.position.lengthSquared()>.001?node.position.scale(-1).normalize():new Vector3(-.45,-.85,.32);
-    light.diffuse=Color3.FromHexString(sun.color);light.intensity=sun.intensity;light.setEnabled(sun.enabled);node.setEnabled(sun.enabled);
-    const material=node.getChildMeshes()[0]?.material as StandardMaterial|undefined;if(material)material.emissiveColor=Color3.FromHexString(sun.color);
-    if(selected.kind==="sun")attach();
-  },[sun,selected]);
+  useEffect(() => {
+    kingNode.current?.dispose();
+    kingNode.current = undefined;
+    if (!kingZone || !scene.current) return;
+    const n = (kingNode.current = new TransformNode(
+        "king-zone",
+        scene.current,
+      )),
+      disc = MeshBuilder.CreateCylinder(
+        "king-zone-volume",
+        {
+          height: kingZone.height,
+          diameter: kingZone.radius * 2,
+          tessellation: 48,
+        },
+        scene.current,
+      ),
+      mat = new StandardMaterial("king-zone-material", scene.current);
+    mat.diffuseColor = new Color3(0.25, 0.75, 1);
+    mat.emissiveColor = new Color3(0.08, 0.28, 0.5);
+    mat.alpha = 0.22;
+    mat.backFaceCulling = false;
+    disc.material = mat;
+    disc.parent = n;
+    disc.position.y = kingZone.height / 2;
+    disc.metadata = { editor: { kind: "king-zone", id: "king-zone" } };
+    n.position.set(kingZone.x, kingZone.y, kingZone.z);
+    if (selected.kind === "king-zone") attach();
+  }, [kingZone, selected]);
+  useEffect(() => {
+    const node = sunNode.current,
+      light = sunLight.current;
+    if (!node || !light) return;
+    node.position.set(sun.x, sun.y, sun.z);
+    light.position.copyFrom(node.position);
+    light.direction =
+      node.position.lengthSquared() > 0.001
+        ? node.position.scale(-1).normalize()
+        : new Vector3(-0.45, -0.85, 0.32);
+    light.diffuse = Color3.FromHexString(sun.color);
+    light.intensity = sun.intensity;
+    light.setEnabled(sun.enabled);
+    node.setEnabled(sun.enabled);
+    const material = node.getChildMeshes()[0]?.material as
+      StandardMaterial | undefined;
+    if (material) material.emissiveColor = Color3.FromHexString(sun.color);
+    if (selected.kind === "sun") attach();
+  }, [sun, selected]);
   useEffect(() => {
     const s = scene.current;
     if (!s) return;
@@ -358,7 +475,8 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       scene.current,
     ));
     mapRoot.scaling.setAll(scale);
-    mapRoot.position.y = offsetY;
+    mapRoot.position.set(offsetX, offsetY, offsetZ);
+    mapRoot.rotation.y = rotationY;
     const result = await SceneLoader.ImportMeshAsync(
       "",
       "",
@@ -394,7 +512,12 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       setName(typeof project.name === "string" ? project.name : name);
       setId(cleanId(typeof project.id === "string" ? project.id : id));
       setScale(typeof project.scale === "number" ? project.scale : 1);
+      setOffsetX(typeof project.offsetX === "number" ? project.offsetX : 0);
       setOffsetY(typeof project.offsetY === "number" ? project.offsetY : 0);
+      setOffsetZ(typeof project.offsetZ === "number" ? project.offsetZ : 0);
+      setRotationY(
+        typeof project.rotationY === "number" ? project.rotationY : 0,
+      );
       setSpawns(Array.isArray(project.spawns) ? project.spawns : []);
       setLights(Array.isArray(project.lights) ? project.lights : []);
       setSky(
@@ -402,7 +525,23 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
           ? project.sky
           : { preset: "blue-day" },
       );
-      setSun(project.sun&&typeof project.sun.x==="number"?project.sun:{enabled:true,x:18,y:32,z:-18,color:"#fff0d6",intensity:2.1});
+      setSun(
+        project.sun && typeof project.sun.x === "number"
+          ? project.sun
+          : {
+              enabled: true,
+              x: 18,
+              y: 32,
+              z: -18,
+              color: "#fff0d6",
+              intensity: 2.1,
+            },
+      );
+      setKingZone(
+        project.kingZone && typeof project.kingZone.radius === "number"
+          ? project.kingZone
+          : undefined,
+      );
       const [skyEntry] = zip.file(/skybox\.env$/i);
       skyFile.current = skyEntry
         ? await skyEntry.async("arraybuffer")
@@ -413,8 +552,8 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     }
   }
   function addSpawn(team: Team) {
-    if (spawns.filter((s) => s.team === team).length >= 2)
-      return setStatus(`Team ${team} already has two spawns.`);
+    if (spawns.filter((s) => s.team === team).length >= 5)
+      return setStatus(`Team ${team} already has five spawns.`);
     const marker: SpawnMarker = { id: uid(`spawn-${team}`), team, ...cursor };
     setSpawns((v) => [...v, marker]);
     setSelected({ kind: "spawn", id: marker.id });
@@ -551,10 +690,10 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
     try {
       if (!source.current) throw new Error("Import a GLB first.");
       if (
-        spawns.filter((s) => s.team === "A").length < 2 ||
-        spawns.filter((s) => s.team === "B").length < 2
+        spawns.filter((s) => s.team === "A").length < 1 ||
+        spawns.filter((s) => s.team === "B").length < 1
       )
-        throw new Error("Add two spawn points for each team.");
+        throw new Error("Add at least one spawn point for each team.");
       if (sky.preset === "custom" && !skyFile.current)
         throw new Error("Upload a .env skybox or choose a preset.");
       const mapId = cleanId(id);
@@ -576,7 +715,10 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
         asset: `/maps/${mapId}/map.glb`,
         walls: [],
         triangles: baked.triangles,
+        offsetX,
         offsetY,
+        offsetZ,
+        rotationY,
         scale,
         bounds: baked.bounds,
         spawns: {
@@ -594,17 +736,22 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
             sky.preset === "custom" ? `/maps/${mapId}/skybox.env` : undefined,
         },
         sun,
+        kingZone,
       };
       const project = {
         version: 1,
         name: name.trim(),
         id: mapId,
         scale,
+        offsetX,
         offsetY,
+        offsetZ,
+        rotationY,
         spawns,
         lights,
         sky,
         sun,
+        kingZone,
       };
       const zip = new JSZip(),
         folder = zip.folder(mapId)!;
@@ -730,6 +877,53 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
               />
             </label>
           </div>
+          <button
+            className={selected.kind === "map" ? "selected" : ""}
+            disabled={!root.current}
+            onClick={() => selectObject("map", "map")}
+          >
+            MOVE / ROTATE MAP WITH GIZMO
+          </button>
+          <div className="row">
+            <label>
+              X offset
+              <input
+                type="number"
+                step=".05"
+                value={offsetX}
+                onChange={(e) => setOffsetX(+e.target.value)}
+              />
+            </label>
+            <label>
+              Z offset
+              <input
+                type="number"
+                step=".05"
+                value={offsetZ}
+                onChange={(e) => setOffsetZ(+e.target.value)}
+              />
+            </label>
+          </div>
+          <label>
+            Y rotation (degrees)
+            <input
+              type="number"
+              step="1"
+              value={+((rotationY * 180) / Math.PI).toFixed(2)}
+              onChange={(e) => setRotationY((+e.target.value * Math.PI) / 180)}
+            />
+          </label>
+          <button
+            disabled={!root.current}
+            onClick={() => {
+              setOffsetX(0);
+              setOffsetY(0);
+              setOffsetZ(0);
+              setRotationY(0);
+            }}
+          >
+            RESET MAP TRANSFORM
+          </button>
         </section>
         <section>
           <h2>2 · Objects</h2>
@@ -768,6 +962,66 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
               </button>
             </div>
           ))}
+          <button
+            className={selected.kind === "king-zone" ? "selected" : ""}
+            onClick={() => {
+              const zone = kingZone ?? {
+                x: cursor.x,
+                y: cursor.y,
+                z: cursor.z,
+                radius: 4,
+                height: 3,
+              };
+              setKingZone(zone);
+              setSelected({ kind: "king-zone", id: "king-zone" });
+            }}
+          >
+            {kingZone
+              ? "SELECT KING OF THE HILL ZONE"
+              : "ADD KING OF THE HILL ZONE"}
+          </button>
+          {kingZone && (
+            <div className="light">
+              <label>
+                Zone radius
+                <input
+                  type="number"
+                  min=".5"
+                  max="100"
+                  step=".25"
+                  value={kingZone.radius}
+                  onChange={(e) =>
+                    setKingZone((v) =>
+                      v ? { ...v, radius: +e.target.value } : v,
+                    )
+                  }
+                />
+              </label>
+              <label>
+                Zone height
+                <input
+                  type="number"
+                  min=".5"
+                  max="20"
+                  step=".25"
+                  value={kingZone.height}
+                  onChange={(e) =>
+                    setKingZone((v) =>
+                      v ? { ...v, height: +e.target.value } : v,
+                    )
+                  }
+                />
+              </label>
+              <button
+                onClick={() => {
+                  setKingZone(undefined);
+                  setSelected({ kind: "reference", id: "reference" });
+                }}
+              >
+                ×
+              </button>
+            </div>
+          )}
           <button onClick={addLight}>ADD POINT LIGHT</button>
           {lights.map((l, i) => (
             <div
@@ -828,13 +1082,71 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
         </section>
         <section>
           <h2>3 · Sun & Skybox</h2>
-          <button className={selected.kind==="sun"?"selected":""} onClick={()=>selectObject("sun","sun")}>SELECT SUN POSITION</button>
-          <label><input type="checkbox" checked={sun.enabled} onChange={e=>setSun(v=>({...v,enabled:e.target.checked}))}/> Directional sun enabled</label>
+          <button
+            className={selected.kind === "sun" ? "selected" : ""}
+            onClick={() => selectObject("sun", "sun")}
+          >
+            SELECT SUN POSITION
+          </button>
+          <label>
+            <input
+              type="checkbox"
+              checked={sun.enabled}
+              onChange={(e) =>
+                setSun((v) => ({ ...v, enabled: e.target.checked }))
+              }
+            />{" "}
+            Directional sun enabled
+          </label>
           <div className="row">
-            <label>Sun color<input type="color" value={sun.color} onChange={e=>setSun(v=>({...v,color:e.target.value}))}/></label>
-            <label>Intensity<select value={sun.intensity} onChange={e=>setSun(v=>({...v,intensity:+e.target.value}))}>{SUN_INTENSITIES.map(value=><option key={value} value={value}>{value===.4?"Moonlight":value===.8?"Low":value===1.2?"Soft":value===2.1?"Daylight":"Bright"} · {value}</option>)}</select></label>
+            <label>
+              Sun color
+              <input
+                type="color"
+                value={sun.color}
+                onChange={(e) =>
+                  setSun((v) => ({ ...v, color: e.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Intensity
+              <select
+                value={sun.intensity}
+                onChange={(e) =>
+                  setSun((v) => ({ ...v, intensity: +e.target.value }))
+                }
+              >
+                {SUN_INTENSITIES.map((value) => (
+                  <option key={value} value={value}>
+                    {value === 0.4
+                      ? "Moonlight"
+                      : value === 0.8
+                        ? "Low"
+                        : value === 1.2
+                          ? "Soft"
+                          : value === 2.1
+                            ? "Daylight"
+                            : "Bright"}{" "}
+                    · {value}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
-          <button onClick={()=>{setSky({preset:"night"});setSun(v=>({...v,enabled:true,color:"#9bbcff",intensity:.4}))}}>APPLY NIGHT PRESET</button>
+          <button
+            onClick={() => {
+              setSky({ preset: "night" });
+              setSun((v) => ({
+                ...v,
+                enabled: true,
+                color: "#9bbcff",
+                intensity: 0.4,
+              }));
+            }}
+          >
+            APPLY NIGHT PRESET
+          </button>
           <label>
             Environment
             <select

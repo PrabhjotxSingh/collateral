@@ -6,6 +6,7 @@ import type {
   ShotEvent,
   DeathRecap,
   MapSummary,
+  KillFeedEvent,
 } from "../../shared/protocol.js";
 import { MAPS, installMaps, type GameMap } from "../../shared/maps.js";
 import type { WeaponManifest, WeaponSummary } from "../../shared/weapons.js";
@@ -122,15 +123,18 @@ export class Network extends EventTarget {
     );
   }
   async startDevSolo(mapId: string) {
-    if (!this.identity) throw new Error("Choose a callsign before launching the sandbox.");
-    if (!this.maps.some((map) => map.id === mapId)) throw new Error("Choose an installed map.");
+    if (!this.identity) await this.connect("DEVMODE");
+    if (!this.maps.some((map) => map.id === mapId))
+      throw new Error("Choose an installed map.");
     if (this.match) await this.leaveMatch();
-    this.bindMatch(await this.client.create("tactical", {
-      name: "Local Dev Sandbox",
-      token: this.token,
-      devSolo: true,
-      mapId,
-    }));
+    this.bindMatch(
+      await this.client.create("tactical", {
+        name: "Local Dev Sandbox",
+        token: this.token,
+        devSolo: true,
+        mapId,
+      }),
+    );
   }
   async join(roomId: string, password = "") {
     this.bindMatch(
@@ -147,6 +151,9 @@ export class Network extends EventTarget {
     });
     room.onMessage("error", (message) => this.emit("error", message));
     room.onMessage("shot", (shot: ShotEvent) => this.emit("shot", shot));
+    room.onMessage("kill-feed", (event: KillFeedEvent) =>
+      this.emit("kill-feed", event),
+    );
     room.onMessage("death-recap", (recap: DeathRecap) =>
       this.emit("death-recap", recap),
     );
@@ -200,6 +207,8 @@ export class Network extends EventTarget {
       | "game-mode"
       | "kill-limit"
       | "match-seconds"
+      | "ticket-limit"
+      | "play-again"
       | "map-selection"
       | "back-lobby"
       | "input"
@@ -261,8 +270,8 @@ export class Network extends EventTarget {
     this.match = undefined;
     this.state = undefined;
     sessionStorage.removeItem("collateral.match");
-    await room?.leave();
     this.emit("left");
+    await room?.leave();
   }
   async leave() {
     const room = this.match,

@@ -1,4 +1,29 @@
-Collateral Engine v2.5.3 - Independent procedural weapon motion
+Collateral Engine v2.6.3 - Stable kill feed
+
+- Kill feed now uses a persistent keyed overlay instead of rebuilding every state tick
+- Existing entries no longer restart their animation when new state arrives
+
+- Repeatable weapon-info dialogs, wider menu content, and padded elimination controls
+- King of the Hill HUD clears the default scoreboard; radar sweep removed
+- Standing from crouch blends back to idle instead of snapping
+- Imported weapon audio shows its filename and can be previewed
+- Third-person arm/shoulder captures export from the latest saved holding pose
+- Development sandbox creates a DEVMODE callsign automatically when needed
+
+- Top-right five-second kill feed with team-colored names and weapon labels
+- Environmental deaths use the compact [KILLED] Player format
+- Map-editor source geometry can be translated and rotated with axis gizmos
+
+- Lobbies support up to five players per team; uneven teams may start
+- King of the Hill authoring zone, authoritative tickets, respawns and HUD
+- Team B FBI operator with complete movement/crouch/death animation set
+- Persistent radar shot pings, stronger blood splatter and empty-ammo feedback
+- Play Again keeps current players and match settings
+- Weapon stats dialogs and corrected lobby/result/menu spacing
+- Save is the final framer tab; third-person arm capture no longer resets the pose
+- Animation ranges are edited as seconds; reload follows reload rules, fire follows RPM
+- One to five map spawns per team with +Z/blue-axis facing indicators
+- Smoothed crouch transitions, anti-spam cooldown and more forgiving stair stepping
 
 - Axis and rotation gizmos for the player reference, spawns, and lights
 - Map clicks no longer reposition the reference capsule

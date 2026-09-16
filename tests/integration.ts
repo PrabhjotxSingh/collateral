@@ -17,7 +17,7 @@ try {
   for(const r of matches){r.onMessage('step',()=>{});r.onMessage('reload',()=>{});r.onMessage('shot',()=>{});}
   await until(()=>lobby.state?.players?.size===4,'four players synchronized');
   assert.equal([...lobby.state.players.values()].filter((p:any)=>p.team==='A').length,2);
-  lobby.send('team','B');await until(()=>errors.length===2,'team full rejects');assert.match(errors[1],/full/);
+  lobby.send('team','B');await until(()=>lobby.state.players.get(lobby.sessionId).team==='B','uneven team switch allowed');lobby.send('team','A');await until(()=>lobby.state.players.get(lobby.sessionId).team==='A','host switches back');
   let listing:any[]=[];identities[0].onMessage('lobbies',m=>listing=m);identities[0].send('list');await until(()=>listing.some(l=>l.roomId===lobby.roomId),'live browser listing');
   assert.equal(listing.find(l=>l.roomId===lobby.roomId).locked,true);
   assert.ok(!JSON.stringify(listing).includes('secret'),'password absent from directory');
@@ -28,15 +28,14 @@ try {
   await until(()=>lobby.state.players.get(guest.sessionId).connected,'same player reconnects');assert.equal(resumed.sessionId,guest.sessionId);
   lobby.send('start');await until(()=>lobby.state.phase==='prep','match start');
   await until(()=>!listing.some(l=>l.roomId===lobby.roomId),'in-game room removed from browser');
-  console.log('PASS: username uniqueness, private password validation, live directory, 2v2 limits, reconnect and four-human start.');
+  console.log('PASS: username uniqueness, private password validation, live directory, uneven team switching, reconnect and four-human start.');
   const duelUsers=[await identity(`DuelA_${suffix}`),await identity(`DuelB_${suffix}`)];
   const duel=await client.create('tactical',{name:'1v1 integration',token:duelUsers[0].token});matches.push(duel);
   const duelErrors:string[]=[];duel.onMessage('error',m=>duelErrors.push(m));
   const opponent=await client.joinById(duel.roomId,{token:duelUsers[1].token});matches.push(opponent);
   const guestErrors:string[]=[];opponent.onMessage('error',m=>guestErrors.push(m));
   for(const r of [duel,opponent])for(const event of ['shot','step','reload'])r.onMessage(event,()=>{});
-  await until(()=>duel.state?.players?.size===2,'two joined');duel.send('start');await until(()=>duelErrors.length===1,'same-team start rejected');
-  opponent.send('team','B');await until(()=>duel.state.players.get(opponent.sessionId).team==='B','opponent switches team');
+  await until(()=>duel.state?.players?.size===2,'two joined');assert.notEqual(duel.state.players.get(duel.sessionId).team,duel.state.players.get(opponent.sessionId).team);
   opponent.send('start');await until(()=>guestErrors.length===1,'guest cannot start');assert.match(guestErrors[0],/Only the host/);
   duel.send('start');await until(()=>duel.state.phase==='prep','host starts 1v1');assert.equal(duel.state.players.size,2);
   console.log('PASS: 1v1 starts only with opposing teams and host authorization.');

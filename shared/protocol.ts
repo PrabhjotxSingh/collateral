@@ -56,6 +56,11 @@ export interface GameView {
   gameMode: GameMode;
   killLimit: number;
   matchSeconds: number;
+  ticketLimit: number;
+  zoneTeam: string;
+  zoneAdvantage: number;
+  zoneA: number;
+  zoneB: number;
 }
 export interface MapSummary {
   id: string;
@@ -85,7 +90,18 @@ export interface ShotEvent {
   hit: boolean;
   headshot: boolean;
 }
+export interface KillFeedEvent {
+  killerId?: string;
+  killerName?: string;
+  killerTeam?: Team;
+  victimId: string;
+  victimName: string;
+  victimTeam: Team;
+  weapon?: string;
+  cause: "weapon" | "environment";
+}
 export interface DamageExchange {
+  // Damage exchanged during the current round.
   opponentId: string;
   username: string;
   dealt: number;

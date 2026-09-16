@@ -11,12 +11,13 @@ import {
   type Team,
   DEATHMATCH_KILL_LIMITS,
   DEATHMATCH_MINUTES,
+  KOTH_TICKET_LIMITS,
 } from "../../shared/rules.js";
 import { MAPS } from "../../shared/maps.js";
 import { WEAPONS } from "./weapon-registry.js";
 const hash = promisify(scrypt);
 export class TacticalRoom extends Room<GameState> {
-  maxClients = 4;
+  maxClients = RULES.maxPlayers;
   maxMessagesPerSecond = 100;
   private salt = randomBytes(16);
   private passwordHash?: Buffer;
@@ -76,6 +77,8 @@ export class TacticalRoom extends Room<GameState> {
     this.onMessage("game-mode",(client,value)=>this.guard(client,()=>this.setGameMode(client,value)));
     this.onMessage("kill-limit",(client,value)=>this.guard(client,()=>this.setKillLimit(client,value)));
     this.onMessage("match-seconds",(client,value)=>this.guard(client,()=>this.setMatchSeconds(client,value)));
+    this.onMessage("ticket-limit",(client,value)=>this.guard(client,()=>this.setTicketLimit(client,value)));
+    this.onMessage("play-again",(client)=>this.guard(client,()=>this.playAgain(client)));
     this.onMessage("map-selection", (client, value) =>
       this.guard(client, () => this.setMap(client, value)),
     );
@@ -116,10 +119,9 @@ export class TacticalRoom extends Room<GameState> {
     p.username = identity.username;
     p.weapon = [...WEAPONS.entries()].find(([,weapon])=>weapon.slot==="primary")?.[0] ??
       [...WEAPONS.entries()].find(([,weapon])=>weapon.slot==="secondary")?.[0] ?? p.weapon;
-    p.team =
-      [...this.state.players.values()].filter((p) => p.team === "A").length < 2
-        ? "A"
-        : "B";
+    const a=[...this.state.players.values()].filter((p) => p.team === "A").length,
+      b=[...this.state.players.values()].filter((p) => p.team === "B").length;
+    p.team = a <= b ? "A" : "B";
     const initial=WEAPONS.get(p.weapon)?.gameplay;
     if(initial){p.ammo=initial.magazine;p.reserve=initial.reserve;}
     this.state.players.set(p.id, p);
@@ -142,7 +144,7 @@ export class TacticalRoom extends Room<GameState> {
     if (!p || p.team === team) return;
     if (
       [...this.state.players.values()].filter((p) => p.team === team).length >=
-      2
+      RULES.teamSize
     )
       throw new Error("That team is full.");
     p.team = team;
@@ -157,7 +159,7 @@ export class TacticalRoom extends Room<GameState> {
     const players = [...this.state.players.values()];
     if (!this.devSolo && !canStartMatch(players))
       throw new Error(
-        "One or two connected players on each team are required.",
+        "At least one connected player on each team is required.",
       );
     this.lock();
     this.state.mapId =
@@ -183,9 +185,16 @@ export class TacticalRoom extends Room<GameState> {
     this.state.roundLimit = value;
   }
   private hostWaiting(client:Client){if(client.sessionId!==this.state.hostId||this.state.phase!=="waiting")throw new Error("Only the host can change match settings.");}
-  protected setGameMode(client:Client,value:unknown){this.hostWaiting(client);if(value!=="elimination"&&value!=="deathmatch")throw new Error("Unknown game mode.");this.state.gameMode=value;}
+  protected setGameMode(client:Client,value:unknown){this.hostWaiting(client);if(value!=="elimination"&&value!=="deathmatch"&&value!=="king-of-the-hill")throw new Error("Unknown game mode.");this.state.gameMode=value;}
   protected setKillLimit(client:Client,value:unknown){this.hostWaiting(client);if(typeof value!=="number"||!(DEATHMATCH_KILL_LIMITS as readonly number[]).includes(value))throw new Error("Choose a valid kill limit.");this.state.killLimit=value;}
   protected setMatchSeconds(client:Client,value:unknown){this.hostWaiting(client);if(typeof value!=="number"||!(DEATHMATCH_MINUTES as readonly number[]).some(m=>m*60===value))throw new Error("Choose a valid time limit.");this.state.matchSeconds=value;}
+  protected setTicketLimit(client:Client,value:unknown){this.hostWaiting(client);if(typeof value!=="number"||!(KOTH_TICKET_LIMITS as readonly number[]).includes(value))throw new Error("Choose a valid ticket limit.");this.state.ticketLimit=value;}
+  protected playAgain(client:Client){
+    if(client.sessionId!==this.state.hostId||this.state.phase!=="finished")throw new Error("Only the host can replay a finished match.");
+    const s=this.state;s.phase="waiting";s.round=0;s.scoreA=0;s.scoreB=0;s.zoneA=0;s.zoneB=0;s.zoneTeam="";s.zoneAdvantage=0;s.winner="";s.reason="";
+    for(const p of s.players.values()){p.kills=0;p.deaths=0;p.health=RULES.health;p.reloading=false;p.spawnProtected=false;}
+    this.startMatch(client);
+  }
   protected setMap(client: Client, value: unknown) {
     if (
       client.sessionId !== this.state.hostId ||
@@ -223,6 +232,10 @@ export class TacticalRoom extends Room<GameState> {
     s.round = 0;
     s.scoreA = 0;
     s.scoreB = 0;
+    s.zoneA = 0;
+    s.zoneB = 0;
+    s.zoneTeam = "";
+    s.zoneAdvantage = 0;
     s.remaining = 0;
     s.winner = "";
     s.reason = "";

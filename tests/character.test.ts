@@ -42,3 +42,8 @@ test('bundled soldier loads, clones independent skeletons, fits 1.8m and exposes
     first.dispose();second.dispose();container.dispose();
   }finally{scene.dispose();engine.dispose();}
 });
+test('Team B FBI operator contains the complete Collateral locomotion set',async()=>{
+  const bytes=await readFile(new URL('../client/public/assets/characters/fbi-orange.glb',import.meta.url)),length=bytes.readUInt32LE(12),gltf=JSON.parse(bytes.subarray(20,20+length).toString()),names=gltf.animations.map((a:any)=>a.name);
+  for(const clip of ['idle','walk','walkBackward','strafeLeft','strafeRight','run','jump','crouch','crouchWalk','death'])assert.ok(names.includes(clip),`missing ${clip}`);
+  assert.ok(gltf.skins?.length>0,'FBI operator must remain skinned');
+});

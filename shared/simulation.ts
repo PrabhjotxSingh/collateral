@@ -2,7 +2,7 @@ import {capsuleOverlapsMap,resolveMap,floorHeight} from './geometry.js';
 import { RULES } from './rules.js';
 import type { Box,GameMap } from './maps.js';
 import type { Input } from './protocol.js';
-export interface Body {x:number;y:number;z:number;vx:number;vy:number;vz:number;grounded:boolean;crouch:boolean;ads:boolean;lastJump:boolean;sprint:boolean}
+export interface Body {x:number;y:number;z:number;vx:number;vy:number;vz:number;grounded:boolean;crouch:boolean;ads:boolean;lastJump:boolean;sprint:boolean;crouchCooldown?:number}
 export interface Vec {x:number;y:number;z:number}
 export function rayBox(origin:Vec,dir:Vec,box:Box):number {
   let lo=0,hi:number=RULES.maxRange;
@@ -18,7 +18,12 @@ export function intersects(b:Body,wall:Box,height=b.crouch?RULES.crouchHeight:RU
   return b.x+RULES.radius>wall.x-wall.w/2&&b.x-RULES.radius<wall.x+wall.w/2&&b.z+RULES.radius>wall.z-wall.d/2&&b.z-RULES.radius<wall.z+wall.d/2&&b.y+height>wall.y-wall.h/2+0.001&&b.y<wall.y+wall.h/2-0.001;
 }
 export function moveBody(b:Body,input:Input,dt:number,map:GameMap){
-  b.crouch=input.crouch||(b.crouch&&(map.walls.some(w=>intersects(b,w,RULES.height))||capsuleOverlapsMap(b,RULES.height,map)));b.ads=input.ads;
+  b.crouchCooldown=Math.max(0,(b.crouchCooldown??0)-dt);
+  if(input.crouch!==b.crouch&&b.crouchCooldown<=0){
+    const canStand=input.crouch||!(map.walls.some(w=>intersects(b,w,RULES.height))||capsuleOverlapsMap(b,RULES.height,map));
+    if(canStand){b.crouch=input.crouch;b.crouchCooldown=RULES.crouchCooldownSeconds;}
+  }
+  b.ads=input.ads;
   b.sprint=!!input.sprint&&!b.crouch&&!b.ads&&input.forward>0;
   const speed=b.crouch?RULES.crouchSpeed:b.ads?RULES.adsSpeed:b.sprint?RULES.sprintSpeed:RULES.walkSpeed;
   const length=Math.max(1,Math.hypot(input.forward,input.strafe));
@@ -40,7 +45,7 @@ export function moveBody(b:Body,input:Input,dt:number,map:GameMap){
     // collide-then-correct path could alternate between the vertical face and
     // the tread, producing the familiar stop/pop/stick behavior on stairs.
     if(canStep&&Math.hypot(b.vx,b.vz)>1e-5){
-      const next={...start,x:start.x+b.vx*dt,z:start.z+b.vz*dt},floor=floorHeight(next,map,RULES.stepHeight,.015),rise=floor-start.y;
+      const travel=Math.hypot(b.vx,b.vz),lead=Math.min(RULES.radius*.75,travel*.06),next={...start,x:start.x+b.vx*dt,z:start.z+b.vz*dt},probe={...next,x:next.x+(b.vx/travel)*lead,z:next.z+(b.vz/travel)*lead},floor=floorHeight(probe,map,RULES.stepHeight,.02),rise=floor-start.y;
       if(rise>.004&&rise<=RULES.stepHeight){
         const elevated={...next,y:floor+.002};let clear=true;
         for(let i=1;i<=8&&clear;i++){
@@ -85,7 +90,7 @@ export function moveBody(b:Body,input:Input,dt:number,map:GameMap){
   }
   if(b.y<=0){b.y=0;b.vy=0;b.grounded=true;}
 }
-export const makeBody=(x=0,z=0):Body=>({x,y:0,z,vx:0,vy:0,vz:0,grounded:true,crouch:false,ads:false,lastJump:false,sprint:false});
+export const makeBody=(x=0,z=0):Body=>({x,y:0,z,vx:0,vy:0,vz:0,grounded:true,crouch:false,ads:false,lastJump:false,sprint:false,crouchCooldown:0});
 export function validInput(value:unknown):value is Input {
   if(!value||typeof value!=='object')return false;const v=value as Input;
   return (v.sprint===undefined||typeof v.sprint==='boolean')&&Number.isSafeInteger(v.seq)&&v.seq>=0&&v.seq<2**31&&Number.isFinite(v.forward)&&Math.abs(v.forward)<=1&&Number.isFinite(v.strafe)&&Math.abs(v.strafe)<=1&&Number.isFinite(v.yaw)&&Math.abs(v.yaw)<=Math.PI*100&&Number.isFinite(v.pitch)&&Math.abs(v.pitch)<=1.55&&['jump','crouch','ads'].every(k=>typeof (v as any)[k]==='boolean');

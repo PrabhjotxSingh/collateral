@@ -1,0 +1,1 @@
+Copy the primary/ak47 folder into client/public/weapons/primary/ak47, then restart the server.

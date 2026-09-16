@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {deathmatchWinner} from "../server/src/combat.js";
+import {deathmatchWinner,hillControl} from "../server/src/combat.js";
 import {ClipPlayer} from "../client/src/animation.js";
 import type {AnimationGroup} from "@babylonjs/core";
 
@@ -10,6 +10,11 @@ test("deathmatch ends at the kill limit or clock and supports a tied clock",()=>
   assert.equal(deathmatchWinner(4,7,20,true),"B");
   assert.equal(deathmatchWinner(6,6,20,true),"draw");
   assert.equal(deathmatchWinner(4,3,20,false),undefined);
+});
+test("king of the hill scores only the outnumbering team and caps at five",()=>{
+  assert.deepEqual(hillControl(2,2),{team:"",advantage:0});
+  assert.deepEqual(hillControl(4,1),{team:"A",advantage:3});
+  assert.deepEqual(hillControl(0,8),{team:"B",advantage:5});
 });
 
 test("returning to a weapon starts a clean live idle instead of a frozen transient",()=>{

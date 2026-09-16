@@ -1,1 +1,43 @@
-{"version":1,"name":"FightYard","id":"fightyard","scale":3,"offsetY":0,"spawns":[{"id":"spawn-A-9b6db86d","team":"A","x":10.589,"y":0.069,"z":-16.663,"yaw":0},{"id":"spawn-A-e7dc16fd","team":"A","x":-11.166,"y":0.069,"z":-18.038,"yaw":0},{"id":"spawn-B-036c839f","team":"B","x":-11.161,"y":0.069,"z":13.239,"yaw":-3.097},{"id":"spawn-B-729bfacd","team":"B","x":11.214,"y":0.069,"z":13.175,"yaw":-3.097}],"lights":[],"sky":{"preset":"blue-day"}}
+{
+  "version": 1,
+  "name": "Fight Yard",
+  "id": "fightyard",
+  "scale": 3,
+  "offsetY": 0,
+  "spawns": [
+    {
+      "id": "spawn-A-9b6db86d",
+      "team": "A",
+      "x": 10.589,
+      "y": 0.069,
+      "z": -16.663,
+      "yaw": 0
+    },
+    {
+      "id": "spawn-A-e7dc16fd",
+      "team": "A",
+      "x": -11.166,
+      "y": 0.069,
+      "z": -18.038,
+      "yaw": 0
+    },
+    {
+      "id": "spawn-B-036c839f",
+      "team": "B",
+      "x": -11.161,
+      "y": 0.069,
+      "z": 13.239,
+      "yaw": -3.097
+    },
+    {
+      "id": "spawn-B-729bfacd",
+      "team": "B",
+      "x": 11.214,
+      "y": 0.069,
+      "z": 13.175,
+      "yaw": -3.097
+    }
+  ],
+  "lights": [],
+  "sky": { "preset": "blue-day" }
+}

@@ -69,8 +69,8 @@ test('Glock hold is static; procedural motion supplies input-driven sway',async(
   }finally{s.dispose();e.dispose();}
 });
 
-test('start eligibility accepts connected 1v1 and 2v2 only',()=>{
+test('start eligibility accepts uneven teams from 1v1 through 5v5',()=>{
   const a={team:'A' as const,connected:true},b={team:'B' as const,connected:true};
-  assert.ok(canStartMatch([a,b]));assert.ok(canStartMatch([a,a,b,b]));
-  for(const p of [[],[a],[a,a],[a,a,b],[a,{...b,connected:false}]])assert.equal(canStartMatch(p),false);
+  assert.ok(canStartMatch([a,b]));assert.ok(canStartMatch([a,a,b]));assert.ok(canStartMatch([a,a,a,a,a,b,b,b]));
+  for(const p of [[],[a],[a,a],[a,{...b,connected:false}],[a,a,a,a,a,a,b]])assert.equal(canStartMatch(p),false);
 });

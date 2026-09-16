@@ -36,6 +36,7 @@ export function deathmatchWinner(scoreA:number,scoreB:number,limit:number,expire
   if(scoreA>=limit||scoreB>=limit)return scoreA===scoreB?"draw":scoreA>scoreB?"A":"B";
   if(expired)return scoreA===scoreB?"draw":scoreA>scoreB?"A":"B";
 }
+export function hillControl(a:number,b:number){return {team:a===b?"":a>b?"A":"B",advantage:Math.min(5,Math.abs(a-b))} as {team:""|Team;advantage:number};}
 export function traceShot(
   shooter: PlayerState,
   players: Iterable<PlayerState>,

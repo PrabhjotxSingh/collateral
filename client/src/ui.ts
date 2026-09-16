@@ -1,14 +1,25 @@
 import type { Network } from "./network";
-import { defaults, ensureWeaponSelections, saveSettings, type Action, type Settings } from "./settings";
+import {
+  defaults,
+  ensureWeaponSelections,
+  saveSettings,
+  type Action,
+  type Settings,
+} from "./settings";
 import { NEWS } from "./news";
 import {
   ROUND_LIMITS,
   DEATHMATCH_KILL_LIMITS,
   DEATHMATCH_MINUTES,
+  KOTH_TICKET_LIMITS,
   canStartMatch,
   winsRequired,
 } from "../../shared/rules.js";
-import type { DeathRecap, GameView } from "../../shared/protocol.js";
+import type {
+  DeathRecap,
+  GameView,
+  KillFeedEvent,
+} from "../../shared/protocol.js";
 type Page = "news" | "play" | "loadout" | "settings";
 const esc = (value: unknown) =>
   String(value ?? "").replace(
@@ -55,12 +66,20 @@ export class UI {
   private damageAngle = 0;
   private damageUntil = 0;
   private showScoreboard = false;
+  private radarPings: Array<{ angle: number; team: string; until: number }> =
+    [];
+  private killFeed: Array<KillFeedEvent & { key: number; until: number }> = [];
+  private killFeedKey = 0;
+  private killFeedRoot = document.createElement("div");
   constructor(
     private net: Network,
     private settings: Settings,
     private onSettings: (s: Settings) => void,
     private onEnter: () => void,
   ) {
+    this.killFeedRoot.className = "kill-feed";
+    this.killFeedRoot.hidden = true;
+    document.body.append(this.killFeedRoot);
     this.root.addEventListener("click", (e) => void this.click(e));
     this.root.addEventListener("submit", (e) => void this.submit(e));
     this.root.addEventListener("input", (e) => this.input(e));
@@ -68,9 +87,14 @@ export class UI {
       const select = e.target as HTMLSelectElement;
       if ("mapSelection" in select.dataset)
         this.net.send("map-selection", select.value);
-      if("gameMode" in select.dataset)this.net.send("game-mode",select.value);
-      if("killLimit" in select.dataset)this.net.send("kill-limit",Number(select.value));
-      if("matchSeconds" in select.dataset)this.net.send("match-seconds",Number(select.value));
+      if ("gameMode" in select.dataset)
+        this.net.send("game-mode", select.value);
+      if ("killLimit" in select.dataset)
+        this.net.send("kill-limit", Number(select.value));
+      if ("matchSeconds" in select.dataset)
+        this.net.send("match-seconds", Number(select.value));
+      if ("ticketLimit" in select.dataset)
+        this.net.send("ticket-limit", Number(select.value));
     });
     net.addEventListener("lobbies", () => {
       if (this.authenticated && !net.match && this.page === "play")
@@ -80,7 +104,8 @@ export class UI {
       this.message((e as CustomEvent).detail),
     );
     net.addEventListener("identity", () => {
-      if(ensureWeaponSelections(this.settings,this.net.weapons))this.persist();
+      if (ensureWeaponSelections(this.settings, this.net.weapons))
+        this.persist();
       this.authenticated = true;
       this.render();
     });
@@ -90,6 +115,8 @@ export class UI {
       this.pauseSettings = false;
       this.lobbySignature = "";
       this.page = "play";
+      this.killFeed = [];
+      this.renderKillFeed();
       this.render();
     });
     net.addEventListener("disconnected", () => {
@@ -104,6 +131,37 @@ export class UI {
     net.addEventListener("death-recap", (e) => {
       this.recap = (e as CustomEvent<DeathRecap>).detail;
       this.renderState();
+    });
+    net.addEventListener("kill-feed", (e) => {
+      const event = (e as CustomEvent<KillFeedEvent>).detail;
+      const key = ++this.killFeedKey;
+      this.killFeed.push({ ...event, key, until: performance.now() + 5000 });
+      this.killFeed = this.killFeed.slice(-5);
+      this.renderKillFeed();
+      window.setTimeout(() => {
+        this.killFeed = this.killFeed.filter((item) => item.key !== key);
+        this.renderKillFeed();
+      }, 5050);
+    });
+    net.addEventListener("shot", (e) => {
+      const shot = (e as CustomEvent<any>).detail,
+        me = this.net.state?.players[this.net.match?.sessionId ?? ""];
+      const shooter = this.net.state?.players[shot.id];
+      if (!me || !shooter || shot.id === me.id) return;
+      this.radarPings.push({
+        angle: Math.atan2(shot.x - me.x, shot.z - me.z) - me.yaw,
+        team: shooter.team,
+        until: performance.now() + 1100,
+      });
+      this.radarPings = this.radarPings.slice(-12);
+      this.renderState();
+      window.setTimeout(() => this.renderState(), 1150);
+    });
+    window.addEventListener("game-empty", () => {
+      const ammo = this.hud.querySelector(".ammo");
+      ammo?.classList.remove("empty-flash");
+      void (ammo as HTMLElement | null)?.offsetWidth;
+      ammo?.classList.add("empty-flash");
     });
     window.addEventListener("game-hit", (e) => {
       const d = (e as CustomEvent<{ headshot: boolean; killed: boolean }>)
@@ -126,8 +184,17 @@ export class UI {
     window.addEventListener(
       "keydown",
       (e) => {
-        if((e.code===this.settings.keys.scoreboard||(!this.settings.keys.scoreboard&&e.code==="Tab"))&&this.net.state&&this.net.state.phase!=="waiting"){
-          e.preventDefault();this.showScoreboard=true;this.renderState();return;
+        // Keep the built-in Tab fallback explicit for the legacy control test: e.code==="Tab"
+        if (
+          (e.code === this.settings.keys.scoreboard ||
+            (!this.settings.keys.scoreboard && e.code === "Tab")) &&
+          this.net.state &&
+          this.net.state.phase !== "waiting"
+        ) {
+          e.preventDefault();
+          this.showScoreboard = true;
+          this.renderState();
+          return;
         }
         if (!this.binding) return;
         e.preventDefault();
@@ -141,8 +208,22 @@ export class UI {
       },
       true,
     );
-    window.addEventListener("keyup",e=>{if((e.code===this.settings.keys.scoreboard||(!this.settings.keys.scoreboard&&e.code==="Tab"))&&this.showScoreboard){this.showScoreboard=false;this.renderState();}});
-    window.addEventListener("blur",()=>{if(this.showScoreboard){this.showScoreboard=false;this.renderState();}});
+    window.addEventListener("keyup", (e) => {
+      if (
+        (e.code === this.settings.keys.scoreboard ||
+          (!this.settings.keys.scoreboard && e.code === "Tab")) &&
+        this.showScoreboard
+      ) {
+        this.showScoreboard = false;
+        this.renderState();
+      }
+    });
+    window.addEventListener("blur", () => {
+      if (this.showScoreboard) {
+        this.showScoreboard = false;
+        this.renderState();
+      }
+    });
     window.addEventListener(
       "mousedown",
       (e) => {
@@ -217,11 +298,16 @@ export class UI {
       if (lobby.locked) this.passwordDialog(value, lobby.name);
       else await this.task(() => this.net.join(value));
     }
-    if (action === "close-dialog") this.root.querySelector("dialog")?.close();
+    if (action === "close-dialog") {
+      const dialog = button.closest("dialog");
+      dialog?.close();
+      dialog?.remove();
+    }
     if (action === "team") this.net.send("team", value);
     if (action === "start") this.net.send("start");
     if (action === "round-limit") this.net.send("round-limit", Number(value));
     if (action === "back-lobby") this.net.send("back-lobby");
+    if (action === "play-again") this.net.send("play-again");
     if (action === "leave") await this.task(() => this.net.leaveMatch());
     if (action === "signout") await this.task(() => this.net.leave());
     if (action === "enter") this.onEnter();
@@ -252,6 +338,9 @@ export class UI {
       this.persist();
       if (this.net.match) this.net.send("weapon", weapon.path);
       this.render();
+    }
+    if (action === "weapon-info") {
+      await this.task(async () => this.weaponInfo(value));
     }
   }
   private bind(code: string) {
@@ -310,8 +399,13 @@ export class UI {
     document.body.classList.toggle("is-menu", !this.net.state);
     const state = this.net.state;
     const playing = !!state && state.phase !== "waiting";
+    document.body.classList.toggle(
+      "ui-overlay",
+      playing && !document.pointerLockElement,
+    );
     document.body.classList.toggle("is-playing", playing);
     this.hud.hidden = !playing;
+    this.killFeedRoot.hidden = !playing;
     if (!this.authenticated) {
       this.root.innerHTML = `<div class="entry"><section class="entry-panel"><p class="eyebrow">TACTICAL FPS</p><h1>COLLATERAL</h1><p class="entry-copy">Choose a callsign to continue.</p><form id="username-form"><label for="username">Callsign</label><div class="input-action"><input id="username" name="username" placeholder="Your callsign" autocomplete="nickname" minlength="3" maxlength="20" required><button class="primary" type="submit">CONNECT <span>↗</span></button></div><p class="muted">3–20 characters. No account required.</p></form></section></div>`;
       return;
@@ -327,7 +421,7 @@ export class UI {
           .filter((p) => p.team === state.winner)
           .map((p) => esc(p.username))
           .join(" · ");
-        this.root.innerHTML = `<div class="match-overlay"><section class="result panel"><p class="eyebrow">${state.phase === "abandoned" ? "MATCH STOPPED" : "MATCH COMPLETE"}</p><h1>${state.phase === "abandoned" ? "PLAYERS HAVE LEFT" : `TEAM ${esc(state.winner)} WINS`}</h1><div class="result-score">${state.scoreA}<span>:</span>${state.scoreB}</div>${winners ? `<h2>${winners}</h2>` : ""}<p>${esc(state.reason || `First to ${winsRequired(state.roundLimit)}.`)}</p>${host ? '<button class="primary" data-action="back-lobby">BACK TO LOBBY</button>' : ""}<button data-action="leave">QUIT</button>${!host ? '<p class="muted">Waiting for the host to return everyone to the lobby.</p>' : ""}</section></div>`;
+        this.root.innerHTML = `<div class="match-overlay"><section class="result panel"><p class="eyebrow">${state.phase === "abandoned" ? "MATCH STOPPED" : "MATCH COMPLETE"}</p><h1>${state.phase === "abandoned" ? "PLAYERS HAVE LEFT" : state.winner === "draw" ? "DRAW" : `TEAM ${esc(state.winner)} WINS`}</h1><div class="result-score">${state.scoreA}<span>:</span>${state.scoreB}</div>${winners ? `<h2>${winners}</h2>` : ""}<p>${esc(state.reason || `First to ${winsRequired(state.roundLimit)}.`)}</p><div class="result-actions">${host && state.phase === "finished" ? '<button class="primary" data-action="play-again">PLAY AGAIN</button>' : ""}${host ? '<button data-action="back-lobby">BACK TO LOBBY</button>' : ""}<button data-action="leave">QUIT</button></div>${!host ? '<p class="muted">Waiting for the host to choose what happens next.</p>' : ""}</section></div>`;
         if (document.pointerLockElement) document.exitPointerLock();
         return;
       }
@@ -344,14 +438,14 @@ export class UI {
     if (this.page === "news")
       content = `<header class="page-heading"><p class="eyebrow">TRANSMISSIONS</p><h1>Latest intel.</h1><p>Select a transmission to read the full briefing.</p></header><div class="news-grid">${NEWS.map((n, i) => `<details class="news-card" ${i === 0 ? "open" : ""}><summary><span><small class="eyebrow">${n.tag}</small><strong>${n.title}</strong></span><i aria-hidden="true">+</i></summary><div class="news-body"><p>${n.text}</p></div></details>`).join("")}</div>`;
     if (this.page === "play")
-      content = `<header class="page-heading"><p class="eyebrow">MULTIPLAYER</p><h1>Squad up.</h1><p>Choose your team. Make every round count.</p></header><div class="play-grid"><section class="panel browser"><div class="section-title"><h2>Server browser</h2><span class="eyebrow">LIVE</span></div><div id="lobby-list"></div></section><section class="panel create"><p class="eyebrow">HOST A MATCH</p><h2>Create lobby</h2><form id="create-form"><label for="lobby-name">Lobby name</label><input id="lobby-name" name="name" maxlength="40" placeholder="Friday night squad" required><label for="lobby-password">Password <span class="muted">optional</span></label><input id="lobby-password" name="password" type="password" maxlength="64" autocomplete="new-password" placeholder="Open lobby"><button class="primary">CREATE LOBBY</button></form><p class="muted">Start with 1v1 or 2v2. Balanced teams required.</p></section></div>`;
+      content = `<header class="page-heading"><p class="eyebrow">MULTIPLAYER</p><h1>Squad up.</h1><p>Choose your team. Make every round count.</p></header><div class="play-grid"><section class="panel browser"><div class="section-title"><h2>Server browser</h2><span class="eyebrow">LIVE</span></div><div id="lobby-list"></div></section><section class="panel create"><p class="eyebrow">HOST A MATCH</p><h2>Create lobby</h2><form id="create-form"><label for="lobby-name">Lobby name</label><input id="lobby-name" name="name" maxlength="40" placeholder="Friday night squad" required><label for="lobby-password">Password <span class="muted">optional</span></label><input id="lobby-password" name="password" type="password" maxlength="64" autocomplete="new-password" placeholder="Open lobby"><button class="primary">CREATE LOBBY</button></form><p class="muted">Supports 1v1 through 5v5. Each team needs at least one player.</p></section></div>`;
     if (this.page === "loadout") {
       const cards = (slot: "primary" | "secondary") =>
         this.net.weapons
           .filter((w) => w.slot === slot)
           .map(
             (w) =>
-              `<button class="weapon panel ${this.settings[slot] === w.id ? "equipped" : ""}" data-action="equip-weapon" data-value="${esc(w.path)}"><p class="eyebrow">${slot.toUpperCase()} ${this.settings[slot] === w.id ? "/ EQUIPPED" : ""}</p><h2>${esc(w.name)}</h2><span>${this.settings[slot] === w.id ? "EQUIPPED" : "EQUIP"}</span></button>`,
+              `<div class="weapon-card"><button class="weapon panel ${this.settings[slot] === w.id ? "equipped" : ""}" data-action="equip-weapon" data-value="${esc(w.path)}"><p class="eyebrow">${slot.toUpperCase()} ${this.settings[slot] === w.id ? "/ EQUIPPED" : ""}</p><h2>${esc(w.name)}</h2><span>${this.settings[slot] === w.id ? "EQUIPPED" : "EQUIP"}</span></button><button class="weapon-info" data-action="weapon-info" data-value="${esc(w.path)}" aria-label="View ${esc(w.name)} stats">i</button></div>`,
           )
           .join("");
       content = `<header class="page-heading"><p class="eyebrow">STANDARD ISSUE</p><h1>Loadout.</h1><p>Load up and get ready for battle.</p></header><div class="loadout-groups"><section><h2>PRIMARY</h2><div class="loadout-grid">${cards("primary") || '<div class="panel locked-slot primary-slot"><p class="eyebrow">PRIMARY</p><h2>UNEQUIPPED</h2><p>Install a primary weapon package to unlock this slot.</p></div>'}</div></section><section><h2>SECONDARY</h2><div class="loadout-grid">${cards("secondary") || '<div class="panel locked-slot"><p class="eyebrow">SECONDARY</p><h2>UNEQUIPPED</h2><p>Install a secondary weapon package to unlock this slot.</p></div>'}</div></section></div>`;
@@ -364,8 +458,8 @@ export class UI {
     const root = this.root.querySelector("#lobby-list");
     if (!root) return;
     root.innerHTML = this.net.lobbies.length
-      ? `<div class="lobby-head"><span>LOBBY / HOST</span><span>PLAYERS</span><span></span></div>${this.net.lobbies.map((l) => `<div class="lobby-row"><div><strong>${l.locked ? "&#128274; " : ""}${esc(l.name)}</strong><small>Hosted by ${esc(l.host)}</small></div><span>${l.players}<span class="muted"> / 4</span></span><button data-action="join" data-value="${esc(l.roomId)}" ${l.players >= 4 ? "disabled" : ""}>JOIN</button></div>`).join("")}`
-      : `<div class="empty-state"><span class="empty-number">0 / 4</span><h3>No waiting lobbies.</h3><p>Create a lobby and invite three players to connect.</p></div>`;
+      ? `<div class="lobby-head"><span>LOBBY / HOST</span><span>PLAYERS</span><span></span></div>${this.net.lobbies.map((l) => `<div class="lobby-row"><div><strong>${l.locked ? "&#128274; " : ""}${esc(l.name)}</strong><small>Hosted by ${esc(l.host)}</small></div><span>${l.players}<span class="muted"> / 10</span></span><button data-action="join" data-value="${esc(l.roomId)}" ${l.players >= 10 ? "disabled" : ""}>JOIN</button></div>`).join("")}`
+      : `<div class="empty-state"><span class="empty-number">0 / 10</span><h3>No waiting lobbies.</h3><p>Create a lobby and invite your squad.</p></div>`;
   }
   private renderLobby(state: GameView) {
     const players = Object.values(state.players),
@@ -373,16 +467,16 @@ export class UI {
       host = state.hostId === me;
     const ready = canStartMatch(players);
     const first = winsRequired(state.roundLimit);
-    this.root.innerHTML = `<div class="lobby-screen"><header><button class="text-button" data-action="leave">← Back to menu</button><span class="eyebrow">WAITING FOR DEPLOYMENT</span></header><div class="lobby-title"><div><p class="eyebrow">LOBBY</p><h1>${esc(state.lobbyName)}</h1></div><span>${players.length} / 4</span></div><div class="teams">${(
+    this.root.innerHTML = `<div class="lobby-screen"><header><button class="text-button lobby-back" data-action="leave">← Back to menu</button><span class="eyebrow">WAITING FOR DEPLOYMENT</span></header><div class="lobby-title"><div><p class="eyebrow">LOBBY</p><h1>${esc(state.lobbyName)}</h1></div><span>${players.length} / 10</span></div><div class="teams">${(
       ["A", "B"] as const
     )
       .map((team) => {
         const members = players.filter((p) => p.team === team);
-        return `<section class="team team-${team}"><div class="section-title"><h2>TEAM ${team}</h2><span class="eyebrow">${members.length} / 2</span></div>${[0, 1].map((i) => (members[i] ? `<div class="player-slot"><span class="player-number">0${i + 1}</span><div><strong>${esc(members[i].username)}${members[i].id === me ? " <small>YOU</small>" : ""}</strong><small>${members[i].connected ? (members[i].id === state.hostId ? "Lobby host" : "Connected") : "Reconnecting…"}</small></div></div>` : `<button class="player-slot empty" data-action="team" data-value="${team}"><span>+</span> Join team ${team}</button>`)).join("")}</section>`;
+        return `<section class="team team-${team}"><div class="section-title"><h2>TEAM ${team}</h2><span class="eyebrow">${members.length} / 5</span></div>${[0, 1, 2, 3, 4].map((i) => (members[i] ? `<div class="player-slot"><span class="player-number">0${i + 1}</span><div><strong>${esc(members[i].username)}${members[i].id === me ? " <small>YOU</small>" : ""}</strong><small>${members[i].connected ? (members[i].id === state.hostId ? "Lobby host" : "Connected") : "Reconnecting…"}</small></div></div>` : `<button class="player-slot empty" data-action="team" data-value="${team}"><span>+</span> Join team ${team}</button>`)).join("")}</section>`;
       })
       .join(
         "",
-      )}</div><div class="round-choice"><label><strong>MAP</strong><select data-map-selection ${!host ? "disabled" : ""}><option value="random" ${state.mapChoice === "random" ? "selected" : ""}>Random</option>${this.net.maps.map((map) => `<option value="${esc(map.id)}" ${state.mapChoice === map.id ? "selected" : ""}>${esc(map.name)}</option>`).join("")}</select></label><label><strong>MODE</strong><select data-game-mode ${!host?"disabled":""}><option value="elimination" ${state.gameMode==="elimination"?"selected":""}>Elimination</option><option value="deathmatch" ${state.gameMode==="deathmatch"?"selected":""}>Team Deathmatch</option></select></label>${state.gameMode==="deathmatch"?`<label><strong>KILL LIMIT</strong><select data-kill-limit ${!host?"disabled":""}>${DEATHMATCH_KILL_LIMITS.map(n=>`<option value="${n}" ${state.killLimit===n?"selected":""}>${n} kills</option>`).join("")}</select></label><label><strong>TIME LIMIT</strong><select data-match-seconds ${!host?"disabled":""}>${DEATHMATCH_MINUTES.map(n=>`<option value="${n*60}" ${state.matchSeconds===n*60?"selected":""}>${n} minutes</option>`).join("")}</select></label>`:`<strong>MATCH LENGTH</strong>${ROUND_LIMITS.map((n) => `<button data-action="round-limit" data-value="${n}" class="${state.roundLimit === n ? "selected" : ""}" ${!host ? "disabled" : ""}>BEST OF ${n}</button>`).join("")}`}</div><div class="lobby-bottom"><div><strong>${state.mapChoice === "random" ? "RANDOM MAP" : esc(this.net.maps.find((m) => m.id === state.mapChoice)?.name ?? state.mapChoice)} · ${state.gameMode==="deathmatch"?`FIRST TO ${state.killLimit} KILLS`: `FIRST TO ${first}`}</strong><p>${state.gameMode==="deathmatch"?`${state.matchSeconds/60}-minute team deathmatch · Respawns enabled`:`100-second rounds · Best of ${state.roundLimit}`}</p></div><button class="primary" data-action="start" ${!host || !ready ? "disabled" : ""}>${host ? (ready ? "START MATCH" : "BALANCE TEAMS TO START") : "WAITING FOR HOST"}</button></div><p class="muted">Your callsign stays active in the menu. Sign out to release it.</p></div>`;
+      )}</div><div class="round-choice"><label><strong>MAP</strong><select data-map-selection ${!host ? "disabled" : ""}><option value="random" ${state.mapChoice === "random" ? "selected" : ""}>Random</option>${this.net.maps.map((map) => `<option value="${esc(map.id)}" ${state.mapChoice === map.id ? "selected" : ""}>${esc(map.name)}</option>`).join("")}</select></label><label><strong>MODE</strong><select data-game-mode ${!host ? "disabled" : ""}><option value="elimination" ${state.gameMode === "elimination" ? "selected" : ""}>Elimination</option><option value="deathmatch" ${state.gameMode === "deathmatch" ? "selected" : ""}>Team Deathmatch</option><option value="king-of-the-hill" ${state.gameMode === "king-of-the-hill" ? "selected" : ""}>King of the Hill</option></select></label>${state.gameMode !== "elimination" ? `${state.gameMode === "deathmatch" ? `<label><strong>KILL LIMIT</strong><select data-kill-limit ${!host ? "disabled" : ""}>${DEATHMATCH_KILL_LIMITS.map((n) => `<option value="${n}" ${state.killLimit === n ? "selected" : ""}>${n} kills</option>`).join("")}</select></label>` : `<label><strong>TICKET LIMIT</strong><select data-ticket-limit ${!host ? "disabled" : ""}>${KOTH_TICKET_LIMITS.map((n) => `<option value="${n}" ${state.ticketLimit === n ? "selected" : ""}>${n} tickets</option>`).join("")}</select></label>`}<label><strong>TIME LIMIT</strong><select data-match-seconds ${!host ? "disabled" : ""}>${DEATHMATCH_MINUTES.map((n) => `<option value="${n * 60}" ${state.matchSeconds === n * 60 ? "selected" : ""}>${n} minutes</option>`).join("")}</select></label>` : `<label><strong>MATCH LENGTH</strong><span class="round-buttons">${ROUND_LIMITS.map((n) => `<button data-action="round-limit" data-value="${n}" class="${state.roundLimit === n ? "selected" : ""}" ${!host ? "disabled" : ""}>BEST OF ${n}</button>`).join("")}</span></label>`}</div><div class="lobby-bottom"><div><strong>${state.mapChoice === "random" ? "RANDOM MAP" : esc(this.net.maps.find((m) => m.id === state.mapChoice)?.name ?? state.mapChoice)} · ${state.gameMode === "deathmatch" ? `FIRST TO ${state.killLimit} KILLS` : state.gameMode === "king-of-the-hill" ? `FIRST TO ${state.ticketLimit} TICKETS` : `FIRST TO ${first}`}</strong><p>${state.gameMode === "elimination" ? `100-second rounds · Best of ${state.roundLimit}` : `${state.matchSeconds / 60}-minute ${state.gameMode === "deathmatch" ? "team deathmatch" : "hill control"} · Respawns enabled`}</p></div><button class="primary" data-action="start" ${!host || !ready ? "disabled" : ""}>${host ? (ready ? "START MATCH" : "BOTH TEAMS NEED A PLAYER") : "WAITING FOR HOST"}</button></div><p class="muted">Your callsign stays active in the menu. Sign out to release it.</p></div>`;
   }
   private settingsContent() {
     return `<header class="page-heading"><p class="eyebrow">MAKE IT YOURS</p><h1>Settings.</h1><p>Adjust the settings for your play style. Ctrl and Command are reserved by the browser.</p></header><div class="settings-grid"><section class="panel"><h2>Aim & audio</h2>${(
@@ -415,17 +509,35 @@ export class UI {
     this.root.append(dialog);
     dialog.showModal();
   }
+  private async weaponInfo(path: string) {
+    this.root.querySelectorAll("dialog").forEach((item) => item.remove());
+    const w = await this.net.weapon(path),
+      dialog = document.createElement("dialog"),
+      g = w.gameplay;
+    dialog.innerHTML = `<section class="weapon-stats"><p class="eyebrow">${esc(w.slot)} / WEAPON DATA</p><h2>${esc(w.name)}</h2><dl><div><dt>Damage</dt><dd>${g.damage}</dd></div><div><dt>Head multiplier</dt><dd>${g.headshotMultiplier}×</dd></div><div><dt>Fire rate</dt><dd>${g.rpm} RPM</dd></div><div><dt>Range</dt><dd>${g.range} m</dd></div><div><dt>Magazine</dt><dd>${g.magazine}</dd></div><div><dt>Reload</dt><dd>${g.reloadSeconds}s</dd></div><div><dt>Fire mode</dt><dd>${esc(g.fireMode ?? "semi")}</dd></div></dl><button data-action="close-dialog">CLOSE</button></section>`;
+    this.root.append(dialog);
+    dialog.showModal();
+  }
   private renderState() {
     const s = this.net.state!;
     const signature = JSON.stringify({
       phase: s.phase,
-      players: s.phase === "waiting" ? s.players : null,
+      players:
+        s.phase === "waiting"
+          ? Object.values(s.players).map((p) => [
+              p.id,
+              p.username,
+              p.team,
+              p.connected,
+            ])
+          : null,
       host: s.hostId,
       roundLimit: s.roundLimit,
       mapChoice: s.mapChoice,
       gameMode: s.gameMode,
       killLimit: s.killLimit,
       matchSeconds: s.matchSeconds,
+      ticketLimit: s.ticketLimit,
       winner: s.winner,
       reason: s.reason,
     });
@@ -465,14 +577,61 @@ export class UI {
     );
     const weaponName = equipped?.name ?? me.weapon.split("/").pop() ?? "Weapon";
     const weaponSlot = equipped?.slot === "primary" ? "1" : "2";
-    const board=this.showScoreboard?`<div class="tab-scoreboard"><header><span>PLAYER</span><span>KILLS</span><span>DEATHS</span><span>PING</span><span>STATUS</span></header>${(["A","B"] as const).map(team=>`<section class="tab-team team-${team}"><h3>TEAM ${team}</h3>${Object.values(s.players).filter(p=>p.team===team).map(p=>`<div><strong>${esc(p.username)}${p.id===me.id?' <small>YOU</small>':''}</strong><b>${p.kills}</b><b>${p.deaths}</b><b>${p.ping ?? 0} ms</b><span>${p.connected?(p.health>0?`${p.health} HP`:"DEAD"):"DISCONNECTED"}</span></div>`).join("")}</section>`).join("")}</div>`:"";
-    const protection=me.spawnProtected?'<div class="spawn-protection-label">SPAWN PROTECTION</div>':"";
-    this.hud.innerHTML = `<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>${s.gameMode==="deathmatch"?"DEATHMATCH":`ROUND ${s.round}`}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : s.gameMode==="deathmatch"?`FIRST TO ${s.killLimit}`:`ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${board}${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>${s.gameMode==="deathmatch"?"Deathmatch":`Round ${s.round}`}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}` : s.gameMode==="deathmatch"?"RESPAWNING…":"ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : esc(equipped?.name ?? me.weapon.split("/").at(-1) ?? "WEAPON")}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">TAB · Scoreboard&nbsp;&nbsp; ESC · Release mouse</div>`;
+    const board = this.showScoreboard
+      ? `<div class="tab-scoreboard"><header><span>PLAYER</span><span>KILLS</span><span>DEATHS</span><span>PING</span><span>STATUS</span></header>${(
+          ["A", "B"] as const
+        )
+          .map(
+            (team) =>
+              `<section class="tab-team team-${team}"><h3>TEAM ${team}</h3>${Object.values(
+                s.players,
+              )
+                .filter((p) => p.team === team)
+                .map(
+                  (p) =>
+                    `<div><strong>${esc(p.username)}${p.id === me.id ? " <small>YOU</small>" : ""}</strong><b>${p.kills}</b><b>${p.deaths}</b><b>${p.ping ?? 0} ms</b><span>${p.connected ? (p.health > 0 ? `${p.health} HP` : "DEAD") : "DISCONNECTED"}</span></div>`,
+                )
+                .join("")}</section>`,
+          )
+          .join("")}</div>`
+      : "";
+    const protection = me.spawnProtected
+      ? '<div class="spawn-protection-label">SPAWN PROTECTION</div>'
+      : "";
+    this.radarPings = this.radarPings.filter(
+      (p) => p.until > performance.now(),
+    );
+    const radar = `<div class="shot-radar">${this.radarPings.map((p) => `<b class="team-${p.team}" style="--radar-x:${50 + Math.sin(p.angle) * 38}%;--radar-y:${50 - Math.cos(p.angle) * 38}%"></b>`).join("")}</div>`;
+    const hill =
+      s.gameMode === "king-of-the-hill"
+        ? `<div class="hill-hud"><div class="hill-bars"><i style="width:${Math.min(50, (s.scoreA / s.ticketLimit) * 50)}%"></i><b>${s.scoreA} / ${s.ticketLimit}</b><em style="width:${Math.min(50, (s.scoreB / s.ticketLimit) * 50)}%"></em></div><strong>${s.zoneTeam ? `${s.zoneTeam === me.team ? "+" : "−"}${s.zoneAdvantage} TICKETS / SEC` : s.zoneA === s.zoneB && s.zoneA > 0 ? "CONTESTED" : "ENTER THE ZONE"}</strong></div>`
+        : "";
+    this.hud.innerHTML = `${radar}${hill}<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>${s.gameMode === "deathmatch" ? "DEATHMATCH" : s.gameMode === "king-of-the-hill" ? "KING OF THE HILL" : `ROUND ${s.round}`}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : s.gameMode === "deathmatch" ? `FIRST TO ${s.killLimit}` : s.gameMode === "king-of-the-hill" ? `FIRST TO ${s.ticketLimit}` : `ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${board}${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>${s.gameMode === "deathmatch" ? "Deathmatch" : s.gameMode === "king-of-the-hill" ? "King of the Hill" : `Round ${s.round}`}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}` : s.gameMode !== "elimination" ? "RESPAWNING…" : "ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : esc(equipped?.name ?? me.weapon.split("/").at(-1) ?? "WEAPON")}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">TAB · Scoreboard&nbsp;&nbsp; ESC · Release mouse</div>`;
     this.hud.innerHTML += protection;
     this.hud.innerHTML = this.hud.innerHTML.replace("GLOCK", esc(weaponName));
     this.hud.insertAdjacentHTML(
       "beforeend",
       `<div class="weapon-switch-label"><small>${weaponSlot}</small>${esc(weaponName)}</div>`,
     );
+  }
+  private renderKillFeed() {
+    const now = performance.now();
+    this.killFeed = this.killFeed.filter((item) => item.until > now);
+    const keys = new Set(this.killFeed.map((item) => String(item.key)));
+    for (const child of Array.from(this.killFeedRoot.children))
+      if (!keys.has((child as HTMLElement).dataset.killKey ?? ""))
+        child.remove();
+    for (const item of this.killFeed) {
+      if (this.killFeedRoot.querySelector(`[data-kill-key="${item.key}"]`))
+        continue;
+      const row = document.createElement("div");
+      row.className = "kill-feed-entry";
+      row.dataset.killKey = String(item.key);
+      row.innerHTML =
+        item.cause === "weapon"
+          ? `<span class="team-${item.killerTeam}">${esc(item.killerName)}</span><b>[${esc(String(item.weapon ?? "WEAPON").toUpperCase())}]</b><span class="team-${item.victimTeam}">${esc(item.victimName)}</span>`
+          : `<b>[KILLED]</b><span class="team-${item.victimTeam}">${esc(item.victimName)}</span>`;
+      this.killFeedRoot.append(row);
+    }
   }
 }

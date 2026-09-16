@@ -154,7 +154,7 @@ body.is-playing #game {
 .shell {
   min-height: 100dvh;
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 250px 1fr;
 }
 .shell aside {
   padding: 36px 24px;
@@ -220,7 +220,7 @@ body.is-playing #game {
 }
 main {
   padding: 48px clamp(24px, 4.5vw, 76px);
-  max-width: 1700px;
+  max-width: 1840px;
   width: 100%;
   margin: auto;
 }
@@ -1255,16 +1255,27 @@ select {
   background: #101416;
   color: #fff;
   border: 1px solid var(--line);
-  padding: 12px;
+  padding: 12px 34px 12px 12px;
+  background-position: right 12px center;
 }
 .primary-slot {
   grid-column: 1/-1;
   min-height: 170px;
 }
-.result > button {
-  margin: 6px;
-  width: 100%;
-}
+.result-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:20px}
+.result-actions button{width:100%;margin:0;min-height:44px}
+.lobby-back{padding-left:12px!important}
+.weapon-card{position:relative}.weapon-card>.weapon{width:100%;height:100%}.weapon-info{position:absolute;right:12px;top:12px;width:30px;height:30px;border-radius:50%;padding:0;z-index:2}
+.weapon-stats dl{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);margin:22px 0}.weapon-stats dl div{background:var(--panel);padding:12px}.weapon-stats dt{font:10px Consolas,monospace;color:var(--muted);text-transform:uppercase}.weapon-stats dd{margin:5px 0 0;font-weight:800;text-transform:uppercase}
+.round-choice>label{display:flex;flex-direction:column;min-width:190px;gap:6px}.round-choice>label strong{margin:0}.round-buttons{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;padding-bottom:4px}
+body.ui-overlay #name-tags{display:none}
+.ammo.empty-flash{animation:ammo-empty .35s ease-out}.ammo.empty-flash strong,.ammo.empty-flash span{color:#ff5148}
+@keyframes ammo-empty{0%,35%{transform:scale(1.14);filter:drop-shadow(0 0 10px #f22)}100%{transform:none;filter:none}}
+.shot-radar{position:absolute;left:24px;top:24px;width:122px;height:122px;border:1px solid #8fa4ad66;background:radial-gradient(circle,#14212799 0 2%,transparent 3%),repeating-radial-gradient(circle,transparent 0 24px,#8fa4ad22 25px 26px),#071015aa;overflow:hidden}.shot-radar:before,.shot-radar:after{content:"";position:absolute;background:#8fa4ad33}.shot-radar:before{left:50%;top:0;width:1px;height:100%}.shot-radar:after{top:50%;left:0;height:1px;width:100%}.shot-radar b{position:absolute;left:var(--radar-x);top:var(--radar-y);width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 12px currentColor;animation:radar-ping 1.1s ease-out}.shot-radar .team-A{color:#55adff;background:#55adff}.shot-radar .team-B{color:#ff954d;background:#ff954d}
+@keyframes radar-ping{from{opacity:1;scale:.5}to{opacity:0;scale:2}}
+.kill-feed{position:fixed;right:24px;top:24px;z-index:18;display:grid;justify-items:end;gap:7px;max-width:min(460px,55vw);pointer-events:none}.kill-feed[hidden]{display:none}.kill-feed-entry{display:flex;align-items:center;gap:9px;min-height:30px;padding:6px 10px;border-left:2px solid #c5d2d7;background:linear-gradient(90deg,#071015b8,#071015e8);box-shadow:0 5px 18px #0007;color:#dbe5e8;font:600 12px/1.1 var(--mono);letter-spacing:.035em;animation:kill-feed-in .18s ease-out}.kill-feed-entry b{color:#edf3f5;font-size:11px;letter-spacing:.08em}.kill-feed-entry .team-A{color:#66b9ff}.kill-feed-entry .team-B{color:#ff9b57}@keyframes kill-feed-in{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:translateX(0)}}
+.hill-hud{position:absolute;z-index:4;top:128px;left:50%;transform:translateX(-50%);width:min(520px,55vw);text-align:center}.hill-bars{height:18px;background:#111a;position:relative;display:flex;justify-content:center;overflow:hidden;border:1px solid #87929866}.hill-bars i{position:absolute;right:50%;height:100%;background:#338bd1}.hill-bars em{position:absolute;left:50%;height:100%;background:#db742f}.hill-bars b{position:relative;z-index:2;font:11px/17px Consolas;color:#fff}.hill-hud>strong{display:inline-block;margin-top:5px;background:#071015cc;padding:5px 9px;font:11px Consolas;color:#eee}
+body.in-king-zone #hud:after{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 70px #4da7ff26;animation:hill-glow 1.6s ease-in-out infinite alternate}@keyframes hill-glow{to{box-shadow:inset 0 0 110px #ff8a3d2b}}
 @keyframes damagefade {
   0% {
     opacity: 1;
