@@ -1,0 +1,15 @@
+Up to 5v5, including uneven teams.
+Authoritative King of the Hill mode and map-editor zone tool.
+Team B uses the orange FBI model with complete animations.
+Stronger blood spray/splatter visible to everyone.
+Shot-ping radar.
+Play Again functionality.
+Weapon-stat information dialogs.
+Fixed leave-match flow and dropdown rerendering.
+Corrected lobby/result/button alignment.
+Improved crouch transitions, cooldown, and stairs.
+Engine Save tab moved last.
+Fixed third-person arm-pose capture.
+Animation ranges displayed in seconds with clearer timing rules.
+Map editor supports 1–5 spawns per team and visible facing indicators.
+Custom third-person Draw mapping removed because weapon switching is instantaneous in-game.
