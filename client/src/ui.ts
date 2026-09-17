@@ -108,6 +108,7 @@ export class UI {
         this.persist();
       this.authenticated = true;
       this.render();
+      void this.maybeShowMotd();
     });
     net.addEventListener("state", () => this.renderState());
     net.addEventListener("left", () => {
@@ -342,6 +343,21 @@ export class UI {
     if (action === "weapon-info") {
       await this.task(async () => this.weaponInfo(value));
     }
+    if (action === "motd-tab") {
+      const dialog = button.closest("dialog");
+      dialog
+        ?.querySelectorAll(".motd-tab")
+        .forEach((tab) => tab.classList.toggle("selected", tab === button));
+      dialog?.querySelectorAll<HTMLElement>(".motd-panel").forEach((panel) => {
+        panel.hidden = panel.dataset.panel !== value;
+      });
+    }
+    if (action === "motd-ack") {
+      localStorage.setItem("collateral.motd", new Date().toDateString());
+      const dialog = button.closest("dialog");
+      dialog?.close();
+      dialog?.remove();
+    }
   }
   private bind(code: string) {
     if (!this.binding) return;
@@ -506,6 +522,37 @@ export class UI {
     this.root.querySelector("dialog")?.remove();
     const dialog = document.createElement("dialog");
     dialog.innerHTML = `<form id="password-form"><p class="eyebrow">LOCKED LOBBY</p><h2>${esc(name)}</h2><input type="hidden" name="roomId" value="${esc(roomId)}"><label for="join-password">Password</label><input autofocus id="join-password" type="password" name="password" maxlength="64" required autocomplete="current-password"><div class="dialog-actions"><button type="button" data-action="close-dialog">Cancel</button><button class="primary">JOIN LOBBY</button></div></form>`;
+    this.root.append(dialog);
+    dialog.showModal();
+  }
+  private async readLines(path: string) {
+    try {
+      const response = await fetch(path, { cache: "no-store" });
+      if (!response.ok) return [];
+      return (await response.text())
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  private async maybeShowMotd() {
+    if (localStorage.getItem("collateral.motd") === new Date().toDateString())
+      return;
+    const [motd, changelog] = await Promise.all([
+      this.readLines("/assets/menu/MOTD.txt"),
+      this.readLines("/assets/menu/CHANGELOG.txt"),
+    ]);
+    if (!motd.length && !changelog.length) return;
+    this.root.querySelectorAll("dialog").forEach((item) => item.remove());
+    const list = (items: string[]) =>
+      items.length
+        ? `<ul class="motd-list">${items.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`
+        : `<p class="muted">Nothing to report.</p>`;
+    const dialog = document.createElement("dialog");
+    dialog.className = "motd-dialog";
+    dialog.innerHTML = `<section class="motd"><p class="eyebrow">DAILY BRIEFING</p><h1>WELCOME</h1><div class="motd-tabs" role="tablist"><button class="motd-tab selected" data-action="motd-tab" data-value="motd">MESSAGE OF THE DAY</button><button class="motd-tab" data-action="motd-tab" data-value="changelog">CHANGE LOG</button></div><div class="motd-panel" data-panel="motd"><div class="motd-split"><div class="motd-image-wrap"><img class="motd-image" draggable="false" src="/assets/menu/motd_img.png" alt=""><span class="motd-image-tag">DAILY BRIEFING<small>COLLATERAL</small></span></div><div class="motd-message">${list(motd)}</div></div></div><div class="motd-panel" data-panel="changelog" hidden><p class="motd-intro">Here is what's new in this build.</p>${list(changelog)}</div><div class="dialog-actions"><button class="primary" data-action="motd-ack">OKAY</button></div></section>`;
     this.root.append(dialog);
     dialog.showModal();
   }
