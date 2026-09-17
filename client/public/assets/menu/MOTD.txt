@@ -1,4 +1,2 @@
-Salman and Danish both lame af.
-You are on version 0.9.8. First release coming soon!
-Welcome to COLLATERAL. A modern action shooter where each bullet matters.
-Want to build your own maps for COLLATERAL? The engine is based on Babylon.js and is located in the GitHub. You can check out the GitHub here (https://github.com/PrabhjotxSingh/collateral).
+Welcome to version 9.8.0. Game is much more stable as we gear for the first release. We are aware of some bugs caused by a common source, a fix is schedule!
+Want to share thoughts/questions/concerns? Message checks#5050 on Discord!
