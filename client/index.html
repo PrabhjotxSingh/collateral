@@ -1,1 +1,109 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#08090a"><meta name="description" content="Collateral — a tactical FPS prototype."><link rel="icon" href="/favicon.ico" sizes="any"><title>Collateral</title><style>html,body{margin:0;background:#050607;color:#eee}body:not(.app-ready)>:not(#loading-screen){visibility:hidden}#loading-screen{position:fixed;inset:0;z-index:11000;display:grid;place-content:center;gap:18px;background:#050607;text-align:center;font:11px Consolas,monospace;letter-spacing:.22em;color:#aeb2b3;transition:opacity .35s,visibility .35s}#loading-screen b{font:52px Impact,'Arial Narrow',sans-serif;letter-spacing:.08em;color:#eee}#loading-screen small{letter-spacing:.14em;color:#6d7679}#loading-screen i{display:block;width:220px;height:3px;border-radius:2px;background:#ffffff20;overflow:hidden}#loading-screen i em{display:block;width:45%;height:100%;background:#eee;font-style:normal;animation:bootline 1s ease-in-out infinite}#loading-screen.determinate i em{width:var(--progress,0%);animation:none;transition:width .2s ease-out}body.app-ready:not(.map-loading) #loading-screen{opacity:0;visibility:hidden}body.map-loading #loading-screen{opacity:1;visibility:visible}@keyframes bootline{from{transform:translateX(-140%)}to{transform:translateX(330%)}}</style></head><body><div id="loading-screen" role="status" aria-live="polite"><b>C/</b><span id="loading-label">INITIALIZING COLLATERAL</span><i><em id="loading-fill"></em></i><small id="loading-detail"></small></div><div id="title-sequence" aria-label="Collateral by PrabhSingh.com"><div class="title-card title-card-main">COLLATERAL</div><div class="title-card title-card-credit">PRABHSINGH.COM</div><div class="title-wipe"></div></div><canvas id="menu-scene" aria-hidden="true"></canvas><canvas id="game" aria-label="First-person game view"></canvas><div id="ui"></div><div id="hud"></div><div id="notice" role="status"></div><script type="module" src="/src/main.ts"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#08090a" />
+    <meta
+      name="description"
+      content="Collateral — a online tactical FPS game."
+    />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <title>Collateral</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #050607;
+        color: #eee;
+      }
+      body:not(.app-ready) > :not(#loading-screen) {
+        visibility: hidden;
+      }
+      #loading-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 11000;
+        display: grid;
+        place-content: center;
+        gap: 18px;
+        background: #050607;
+        text-align: center;
+        font:
+          11px Consolas,
+          monospace;
+        letter-spacing: 0.22em;
+        color: #aeb2b3;
+        transition:
+          opacity 0.35s,
+          visibility 0.35s;
+      }
+      #loading-screen b {
+        font:
+          52px Impact,
+          "Arial Narrow",
+          sans-serif;
+        letter-spacing: 0.08em;
+        color: #eee;
+      }
+      #loading-screen small {
+        letter-spacing: 0.14em;
+        color: #6d7679;
+      }
+      #loading-screen i {
+        display: block;
+        width: 220px;
+        height: 3px;
+        border-radius: 2px;
+        background: #ffffff20;
+        overflow: hidden;
+      }
+      #loading-screen i em {
+        display: block;
+        width: 45%;
+        height: 100%;
+        background: #eee;
+        font-style: normal;
+        animation: bootline 1s ease-in-out infinite;
+      }
+      #loading-screen.determinate i em {
+        width: var(--progress, 0%);
+        animation: none;
+        transition: width 0.2s ease-out;
+      }
+      body.app-ready:not(.map-loading) #loading-screen {
+        opacity: 0;
+        visibility: hidden;
+      }
+      body.map-loading #loading-screen {
+        opacity: 1;
+        visibility: visible;
+      }
+      @keyframes bootline {
+        from {
+          transform: translateX(-140%);
+        }
+        to {
+          transform: translateX(330%);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="loading-screen" role="status" aria-live="polite">
+      <b>C/</b><span id="loading-label">INITIALIZING COLLATERAL</span
+      ><i><em id="loading-fill"></em></i><small id="loading-detail"></small>
+    </div>
+    <div id="title-sequence" aria-label="Collateral by PrabhSingh">
+      <div class="title-card title-card-main">COLLATERAL</div>
+      <div class="title-card title-card-credit">PRABHSINGH</div>
+      <div class="title-wipe"></div>
+    </div>
+    <canvas id="menu-scene" aria-hidden="true"></canvas
+    ><canvas id="game" aria-label="First-person game view"></canvas>
+    <div id="ui"></div>
+    <div id="hud"></div>
+    <div id="notice" role="status"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
