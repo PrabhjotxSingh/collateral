@@ -136,9 +136,9 @@ export class Network extends EventTarget {
       }),
     );
   }
-  async join(roomId: string, password = "") {
+  async join(roomId: string, password = "", team?: "A"|"B") {
     this.bindMatch(
-      await this.client.joinById(roomId, { password, token: this.token }),
+      await this.client.joinById(roomId, { password, token: this.token, team }),
     );
   }
   private bindMatch(room: Room) {
@@ -146,6 +146,7 @@ export class Network extends EventTarget {
     this.match = room;
     sessionStorage.setItem("collateral.match", room.reconnectionToken);
     room.onStateChange((state) => {
+      if(this.match!==room)return;
       this.state = state.toJSON() as GameView;
       this.emit("state", this.state);
     });
@@ -217,7 +218,8 @@ export class Network extends EventTarget {
       | "ready"
       | "weapon"
       | "ping"
-      | "latency",
+      | "latency"
+      | "respawn",
     value?: unknown,
   ) {
     this.match?.send(type, value);
@@ -271,7 +273,7 @@ export class Network extends EventTarget {
     this.state = undefined;
     sessionStorage.removeItem("collateral.match");
     this.emit("left");
-    await room?.leave();
+    if(room)await Promise.race([room.leave(),new Promise<void>(resolve=>setTimeout(resolve,1200))]);
   }
   async leave() {
     const room = this.match,

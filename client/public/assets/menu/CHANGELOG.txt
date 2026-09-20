@@ -1,15 +1,27 @@
-Up to 5v5, including uneven teams.
-Authoritative King of the Hill mode and map-editor zone tool.
-Team B uses the orange FBI model with complete animations.
-Stronger blood spray/splatter visible to everyone.
-Shot-ping radar.
-Play Again functionality.
-Weapon-stat information dialogs.
-Fixed leave-match flow and dropdown rerendering.
-Corrected lobby/result/button alignment.
-Improved crouch transitions, cooldown, and stairs.
-Engine Save tab moved last.
-Fixed third-person arm-pose capture.
-Animation ranges displayed in seconds with clearer timing rules.
-Map editor supports 1–5 spawns per team and visible facing indicators.
-Custom third-person Draw mapping removed because weapon switching is instantaneous in-game.
+Guarded every spatial-audio parameter against NaN and infinite values.
+Prevented spawn stacking when maps have fewer spawn markers than players.
+Added defensive recovery if an authoritative player body becomes invalid.
+Weapon poser automatically changes an edited preset to Custom.
+Added full teammate spectating in Elimination and respawn modes, including the weapon.
+Deathmatch/KOTH now require clicking to respawn.
+Respawns use a direct camera transition instead of floating across the map.
+KOTH ticket count now displays the viewer’s team score.
+Running matches remain visible and joinable.
+Joining asks for Team A or Team B and respects five-player limits.
+Fixed the host ending-screen button layout.
+Damage reports reset after each life and round.
+Fixed the production Leave Match double-click problem.
+Standardized button left padding and dropdown-arrow right padding.
+Hitmarkers remain visible while ADS; the normal crosshair stays hidden.
+Map editor accepts and exports .env, .hdr, and cubemap .dds environments.
+Custom environments are previewed and loaded by the game.
+Health and ammo framing use the player’s team color.
+Added a non-Chromium performance warning.
+Added a realistic mouse-following red menu-character light.
+Added restrained remote aim-pitch movement to communicate looking up/down.
+Added a red Reset Collateral button that clears Collateral local storage.
+Added an in-match browser close/reload confirmation.
+Mouse-wheel weapon switching now loops between installed slots.
+Added startup watchdogs for the rare music-playing black-screen failure.
+Fixed crosshair gap output so it consistently displays pixels.
+Updated the in-game changelog with one update per line.

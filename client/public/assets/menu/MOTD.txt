@@ -1,2 +1,2 @@
-Welcome to version 9.8.0. Game is much more stable as we gear for the first release. We are aware of some bugs caused by a common source, a fix is schedule!
+Welcome to COLLATERAL version 1. This is it, the official release!
 Want to share thoughts/questions/concerns? Message checks#5050 on Discord!

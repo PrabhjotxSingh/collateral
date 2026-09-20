@@ -95,8 +95,11 @@ export class TacticalRoom extends Room<GameState> {
       throw new ServerError(401, "Connect with a username first.");
     if (identity.matchId)
       throw new ServerError(409, "This session is already in a lobby.");
-    if (this.state.phase !== "waiting")
-      throw new ServerError(403, "This match has already started.");
+    if (["finished","abandoned"].includes(this.state.phase))
+      throw new ServerError(403, "This match has ended.");
+    if(this.state.players.size>=RULES.maxPlayers)throw new ServerError(403,"This lobby is full.");
+    if(options.team!==undefined&&options.team!=="A"&&options.team!=="B")throw new ServerError(400,"Choose Team A or Team B.");
+    if(options.team&&[...this.state.players.values()].filter(p=>p.connected&&p.team===options.team).length>=RULES.teamSize)throw new ServerError(403,"That team is full.");
     if (this.passwordHash) {
       if (typeof options.password !== "string" || options.password.length > 64)
         throw new ServerError(403, "Incorrect lobby password.");
@@ -106,7 +109,7 @@ export class TacticalRoom extends Room<GameState> {
     }
     return identity;
   }
-  onJoin(client: Client, _options: any, identity: Session) {
+  onJoin(client: Client, options: any, identity: Session) {
     if (sessions.get(identity.token) !== identity)
       throw new ServerError(401, "Session ended. Choose your callsign again.");
     if (identity.matchId)
@@ -121,12 +124,13 @@ export class TacticalRoom extends Room<GameState> {
       [...WEAPONS.entries()].find(([,weapon])=>weapon.slot==="secondary")?.[0] ?? p.weapon;
     const a=[...this.state.players.values()].filter((p) => p.team === "A").length,
       b=[...this.state.players.values()].filter((p) => p.team === "B").length;
-    p.team = a <= b ? "A" : "B";
+    p.team = options.team === "A" || options.team === "B" ? options.team : a <= b ? "A" : "B";
     const initial=WEAPONS.get(p.weapon)?.gameplay;
     if(initial){p.ammo=initial.magazine;p.reserve=initial.reserve;}
     this.state.players.set(p.id, p);
     if (!this.state.hostId) this.state.hostId = p.id;
     this.updateListing();
+    this.onPlayerJoined(p);
     if (this.devSolo) this.startMatch(client);
   }
   protected guard(client: Client, fn: () => void) {
@@ -161,7 +165,6 @@ export class TacticalRoom extends Room<GameState> {
       throw new Error(
         "At least one connected player on each team is required.",
       );
-    this.lock();
     this.state.mapId =
       this.state.mapChoice === "random"
         ? MAPS[Math.floor(Math.random() * MAPS.length)].id
@@ -261,15 +264,19 @@ export class TacticalRoom extends Room<GameState> {
   }
   protected updateListing() {
     const s = this.state;
+    const connected=[...s.players.values()].filter(p=>p.connected);
     publishLobby(
       this.roomId,
-      !this.devSolo && s.phase === "waiting"
+      !this.devSolo && !["finished","abandoned"].includes(s.phase)
         ? {
             roomId: this.roomId,
             name: s.lobbyName,
             host: s.players.get(s.hostId)?.username ?? "",
-            players: s.players.size,
+            players: connected.length,
             locked: !!this.passwordHash,
+            status:s.phase==="waiting"?"waiting":"in-game",
+            teamA:connected.filter(p=>p.team==="A").length,
+            teamB:connected.filter(p=>p.team==="B").length,
           }
         : undefined,
     );
@@ -307,6 +314,7 @@ export class TacticalRoom extends Room<GameState> {
     this.updateListing();
   }
   protected onDisconnected(_player: PlayerState) {}
+  protected onPlayerJoined(_player: PlayerState) {}
   protected onReconnected(_player: PlayerState) {}
   protected onDepartureFinal(_player: PlayerState) {}
   onDispose() {

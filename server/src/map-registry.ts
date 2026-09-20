@@ -17,14 +17,15 @@ export function validateMap(value:unknown,idFromFolder?:string):GameMap{
   if(sun&&(![sun.x,sun.y,sun.z,sun.intensity].every(finite)||typeof sun.color!=='string'||typeof sun.enabled!=='boolean'))throw new Error(`Invalid sun in ${id}`);
   const kingZone=m.kingZone;
   if(kingZone&&(![kingZone.x,kingZone.y,kingZone.z,kingZone.radius,kingZone.height].every(finite)||kingZone.radius<.5||kingZone.radius>100||kingZone.height<.5||kingZone.height>20))throw new Error(`Invalid king-of-the-hill zone in ${id}`);
-  return {...m,id,name:m.name.trim(),asset:`/maps/${id}/map.glb`,walls:[],scale:finite(m.scale)?m.scale:1,offsetX:finite(m.offsetX)?m.offsetX:0,offsetY:finite(m.offsetY)?m.offsetY:0,offsetZ:finite(m.offsetZ)?m.offsetZ:0,rotationY:finite(m.rotationY)?m.rotationY:0,lights,skybox:{preset,asset:preset==='custom'?`/maps/${id}/skybox.env`:undefined},sun,kingZone} as GameMap;
+  const skyAsset=preset==='custom'&&typeof m.skybox?.asset==='string'?`/maps/${id}/${m.skybox.asset.split('/').pop()}`:preset==='custom'?`/maps/${id}/skybox.env`:undefined;
+  return {...m,id,name:m.name.trim(),asset:`/maps/${id}/map.glb`,walls:[],scale:finite(m.scale)?m.scale:1,offsetX:finite(m.offsetX)?m.offsetX:0,offsetY:finite(m.offsetY)?m.offsetY:0,offsetZ:finite(m.offsetZ)?m.offsetZ:0,rotationY:finite(m.rotationY)?m.rotationY:0,lights,skybox:{preset,asset:skyAsset},sun,kingZone} as GameMap;
 }
 
 export function loadInstalledMaps(root:string){
   const loaded:GameMap[]=[];
   if(existsSync(root))for(const entry of readdirSync(root,{withFileTypes:true}))if(entry.isDirectory())try{
     const folder=resolve(root,entry.name),manifest=validateMap(JSON.parse(readFileSync(resolve(folder,'map.json'),'utf8')),entry.name);
-    if(!existsSync(resolve(folder,'map.glb')))throw new Error('map.glb is missing');if(manifest.skybox?.preset==='custom'&&!existsSync(resolve(folder,'skybox.env')))throw new Error('skybox.env is missing');loaded.push(manifest);
+    if(!existsSync(resolve(folder,'map.glb')))throw new Error('map.glb is missing');if(manifest.skybox?.preset==='custom'&&!existsSync(resolve(folder,manifest.skybox.asset?.split('/').pop()??'skybox.env')))throw new Error('custom skybox file is missing');loaded.push(manifest);
   }catch(error){console.warn(`Skipping map ${entry.name}:`,(error as Error).message);}
   if(loaded.length)installMaps(loaded.sort((a,b)=>a.name.localeCompare(b.name)));
   return MAPS;

@@ -3,6 +3,8 @@ import {
   ArcRotateCamera,
   Color3,
   Color4,
+  CubeTexture,
+  HDRCubeTexture,
   Engine,
   GizmoManager,
   HemisphericLight,
@@ -123,6 +125,8 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       intensity: 2.1,
     }),
     skyFile = useRef<ArrayBuffer | undefined>(undefined),
+    skyFileName = useRef("skybox.env"),
+    skyUrl = useRef<string | undefined>(undefined),
     [status, setStatus] = useState("Import a GLB to begin."),
     [exporting, setExporting] = useState<{ stage: string; progress: number }>();
   const selectedRef = useRef(selected);
@@ -462,6 +466,20 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       ambient.current.intensity = sky.preset === "night" ? 0.35 : 0.9;
     }
   }, [sky]);
+  useEffect(()=>{
+    const s=scene.current;if(!s)return;
+    if(sky.preset!=="custom"||!skyFile.current){s.environmentTexture=null;return;}
+    if(skyUrl.current)URL.revokeObjectURL(skyUrl.current);
+    const url=skyUrl.current=URL.createObjectURL(new Blob([skyFile.current]));
+    const texture=skyFileName.current.toLowerCase().endsWith(".hdr")
+      ? new HDRCubeTexture(url,s,256,false,true,false,true)
+      : skyFileName.current.toLowerCase().endsWith(".env")
+        ? CubeTexture.CreateFromPrefilteredData(url,s)
+        : new CubeTexture(url,s);
+    s.environmentTexture=texture;
+    const box=s.createDefaultSkybox(texture,true,500);
+    return()=>{box?.dispose();texture.dispose();if(skyUrl.current===url){URL.revokeObjectURL(url);skyUrl.current=undefined;}};
+  },[sky]);
   async function load(file: File) {
     if (!scene.current) return;
     root.current?.dispose();
@@ -542,10 +560,11 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
           ? project.kingZone
           : undefined,
       );
-      const [skyEntry] = zip.file(/skybox\.env$/i);
+      const [skyEntry] = zip.file(/skybox\.(env|hdr|dds)$/i);
       skyFile.current = skyEntry
         ? await skyEntry.async("arraybuffer")
         : undefined;
+      skyFileName.current=skyEntry?.name.split("/").pop()??"skybox.env";
       setStatus(`Reopened "${project.name ?? "map"}" for editing.`);
     } catch (error) {
       setStatus((error as Error).message);
@@ -733,7 +752,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
         skybox: {
           preset: sky.preset,
           asset:
-            sky.preset === "custom" ? `/maps/${mapId}/skybox.env` : undefined,
+            sky.preset === "custom" ? `/maps/${mapId}/${skyFileName.current}` : undefined,
         },
         sun,
         kingZone,
@@ -758,7 +777,7 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
       folder.file("map.glb", source.current);
       folder.file("map.json", JSON.stringify(manifest));
       folder.file("project.json", JSON.stringify(project));
-      if (sky.preset === "custom") folder.file("skybox.env", skyFile.current!);
+      if (sky.preset === "custom") folder.file(skyFileName.current, skyFile.current!);
       folder.file(
         "INSTALL.txt",
         "Copy this entire folder into client/public/maps, then restart the Collateral server.\nproject.json is the editable source — reopen it from the map engine's IMPORT MAP button to keep editing this map.",
@@ -1163,13 +1182,15 @@ export function MapEditor({ onHome }: { onHome: () => void }) {
           </label>
           {sky.preset === "custom" && (
             <label>
-              Skybox .env
+              Skybox environment (.env, .hdr, or cubemap .dds)
               <input
                 type="file"
-                accept=".env"
+                accept=".env,.hdr,.dds"
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   skyFile.current = file ? await file.arrayBuffer() : undefined;
+                  skyFileName.current=file?.name??"skybox.env";
+                  setSky(v=>({...v}));
                 }}
               />
             </label>

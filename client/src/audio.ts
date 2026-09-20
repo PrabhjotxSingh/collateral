@@ -10,6 +10,9 @@ export class TacticalAudio {
   private buffers = new Map<string, AudioBuffer>();
   private active = new Map<string, {source: AudioBufferSourceNode | OscillatorNode; panner?: PannerNode}>();
   constructor(private settings: () => Settings) {}
+  private finite(value: unknown, fallback = 0) {
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  }
   async unlock() {
     if (!this.context) {
       this.context = new AudioContext();
@@ -72,16 +75,17 @@ export class TacticalAudio {
   listener(position: Vec, yaw: number, pitch: number) {
     const ctx = this.context;
     if (!ctx || !this.output) return;
-    this.output.gain.value = this.settings().master * this.settings().sfx;
+    this.output.gain.value = this.finite(this.settings().master * this.settings().sfx, 0.7);
     const l = ctx.listener;
     // Babylon uses a left-handed world while WebAudio's listener space is
     // right-handed. Mirroring X keeps left/right spatial cues honest.
-    l.positionX.value = -position.x;
-    l.positionY.value = position.y;
-    l.positionZ.value = position.z;
-    l.forwardX.value = -Math.sin(yaw) * Math.cos(pitch);
-    l.forwardY.value = -Math.sin(pitch);
-    l.forwardZ.value = Math.cos(yaw) * Math.cos(pitch);
+    const x=this.finite(position.x),y=this.finite(position.y),z=this.finite(position.z),safeYaw=this.finite(yaw),safePitch=this.finite(pitch);
+    l.positionX.value = -x;
+    l.positionY.value = y;
+    l.positionZ.value = z;
+    l.forwardX.value = -Math.sin(safeYaw) * Math.cos(safePitch);
+    l.forwardY.value = -Math.sin(safePitch);
+    l.forwardZ.value = Math.cos(safeYaw) * Math.cos(safePitch);
     l.upX.value = 0;
     l.upY.value = 1;
     l.upZ.value = 0;
@@ -106,13 +110,13 @@ export class TacticalAudio {
       p.coneInnerAngle = 180;
       p.coneOuterAngle = 270;
       p.coneOuterGain = .45;
-      p.positionX.value = -position.x;
-      p.positionY.value = position.y;
-      p.positionZ.value = position.z;
+      p.positionX.value = -this.finite(position.x);
+      p.positionY.value = this.finite(position.y);
+      p.positionZ.value = this.finite(position.z);
       p.connect(this.output);
       destination = p;
     }
-    const cueVolume = Math.max(0, Math.min(1, volume));
+    const cueVolume = Math.max(0, Math.min(1, this.finite(volume, 1)));
     gain.connect(destination);
     const now = ctx.currentTime;
     const duration =
@@ -167,8 +171,8 @@ export class TacticalAudio {
     const panner=this.active.get(`${kind}:${ownerId}`)?.panner;
     if(!panner)return;
     // Same Babylon-left-handed to WebAudio-right-handed conversion as play().
-    panner.positionX.value=-position.x;
-    panner.positionY.value=position.y;
-    panner.positionZ.value=position.z;
+    panner.positionX.value=-this.finite(position.x);
+    panner.positionY.value=this.finite(position.y);
+    panner.positionZ.value=this.finite(position.z);
   }
 }

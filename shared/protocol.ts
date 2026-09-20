@@ -72,6 +72,9 @@ export interface Lobby {
   host: string;
   players: number;
   locked: boolean;
+  status: "waiting" | "in-game";
+  teamA: number;
+  teamB: number;
 }
 export interface ShotEvent {
   id: string;

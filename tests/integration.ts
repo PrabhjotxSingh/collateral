@@ -27,8 +27,10 @@ try {
   const resumed=await client.reconnect(reconnectToken);matches[3]=resumed;resumed.onMessage('error',()=>{});resumed.onMessage('step',()=>{});resumed.onMessage('shot',()=>{});resumed.onMessage('reload',()=>{});
   await until(()=>lobby.state.players.get(guest.sessionId).connected,'same player reconnects');assert.equal(resumed.sessionId,guest.sessionId);
   lobby.send('start');await until(()=>lobby.state.phase==='prep','match start');
-  await until(()=>!listing.some(l=>l.roomId===lobby.roomId),'in-game room removed from browser');
-  console.log('PASS: username uniqueness, private password validation, live directory, uneven team switching, reconnect and four-human start.');
+  await until(()=>listing.some(l=>l.roomId===lobby.roomId&&l.status==='in-game'),'in-game room remains joinable');
+  const lateUser=await identity(`Late_${suffix}`),late=await client.joinById(lobby.roomId,{token:lateUser.token,password:'secret',team:'B'});matches.push(late);
+  await until(()=>lobby.state.players.has(late.sessionId),'late player joins running match');assert.equal(lobby.state.players.get(late.sessionId).team,'B');assert.equal(lobby.state.players.get(late.sessionId).health,0);
+  console.log('PASS: username uniqueness, private password validation, joinable live directory, uneven team switching, reconnect and four-human start.');
   const duelUsers=[await identity(`DuelA_${suffix}`),await identity(`DuelB_${suffix}`)];
   const duel=await client.create('tactical',{name:'1v1 integration',token:duelUsers[0].token});matches.push(duel);
   const duelErrors:string[]=[];duel.onMessage('error',m=>duelErrors.push(m));
@@ -52,10 +54,10 @@ try {
   const again=await client.create('tactical',{name:'Back again',token:backUser.token});matches.push(again);
   console.log('PASS: leaving a lobby keeps the menu identity and permits another lobby without re-entering callsign.');
 
-  const sandboxUser=await identity(`Sandbox_${suffix}`),sandbox=await client.create('tactical',{name:'Dev sandbox',token:sandboxUser.token,devSolo:true,mapId:'depot'});matches.push(sandbox);
+  const sandboxUser=await identity(`Sandbox_${suffix}`),sandbox=await client.create('tactical',{name:'Dev sandbox',token:sandboxUser.token,devSolo:true,mapId:'sandy'});matches.push(sandbox);
   for(const event of ['shot','step','reload'])sandbox.onMessage(event,()=>{});
   await until(()=>sandbox.state?.phase==='live','single-player sandbox starts');
-  assert.equal(sandbox.state.mapId,'depot');assert.equal(sandbox.state.remaining,0);assert.match(sandbox.state.reason,/UNLIMITED TIME/);
+  assert.equal(sandbox.state.mapId,'sandy');assert.equal(sandbox.state.remaining,0);assert.match(sandbox.state.reason,/UNLIMITED TIME/);
   const sandboxPlayer=sandbox.state.players.get(sandbox.sessionId),sandboxStart=sandboxPlayer.z;
   for(let i=0;i<10;i++){sandbox.send('input',{seq:i+1,forward:1,strafe:0,yaw:0,pitch:0,jump:false,crouch:false,ads:false,sprint:false});await pause(35);}
   assert.ok(sandboxPlayer.z>sandboxStart,'sandbox uses authoritative movement');

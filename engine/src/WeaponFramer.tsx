@@ -657,6 +657,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     marker.scaling.setAll(1);
     setHolding((h) => ({
       ...h,
+      preset: "custom",
       supportHand: { ...h.supportHand, target: readTransform(marker) },
     }));
   }
@@ -697,7 +698,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
         ];
       }),
     );
-    const next = { ...holdingRef.current, arms };
+    const next = { ...holdingRef.current, preset:"custom" as const, arms };
     holdingRef.current = next;
     setHolding(next);
     setHoldingPreview(false);
@@ -917,6 +918,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
     );
     const next = {
       ...holdingRef.current,
+      preset:"custom" as const,
       arms,
       supportHand: {
         ...holdingRef.current.supportHand,
@@ -2191,6 +2193,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
                 onChange={(e) =>
                   setHolding((h) => ({
                     ...h,
+                    preset:"custom",
                     supportHand: {
                       ...h.supportHand,
                       enabled: e.target.checked,
@@ -2207,6 +2210,7 @@ export function WeaponFramer({ onHome }: { onHome: () => void }) {
                 onChange={(e) =>
                   setHolding((h) => ({
                     ...h,
+                    preset:"custom",
                     supportHand: { ...h.supportHand, orient: e.target.checked },
                   }))
                 }

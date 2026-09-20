@@ -12,6 +12,10 @@ const net = new Network(),
   settings = loadSettings();
 const music = new MenuMusic(() => settings);
 let game: Game | undefined;
+window.addEventListener("beforeunload",(event)=>{
+  if(!net.state||net.state.phase==="waiting"||net.state.phase==="finished"||net.state.phase==="abandoned")return;
+  event.preventDefault();event.returnValue="";
+});
 const ui = new UI(
   net,
   settings,

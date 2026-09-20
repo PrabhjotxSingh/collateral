@@ -281,6 +281,10 @@ export class UI {
         );
         this.root.querySelector("dialog")?.close();
       });
+    if(form.id==="team-join-form") await this.task(async()=>{
+      await this.net.join(String(data.get("roomId")),String(data.get("password")??""),String(data.get("team")) as "A"|"B");
+      this.root.querySelector("dialog")?.close();
+    });
   }
   private async click(event: MouseEvent) {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
@@ -296,8 +300,7 @@ export class UI {
     if (action === "join") {
       const lobby = this.net.lobbies.find((l) => l.roomId === value);
       if (!lobby) return;
-      if (lobby.locked) this.passwordDialog(value, lobby.name);
-      else await this.task(() => this.net.join(value));
+      this.teamJoinDialog(lobby);
     }
     if (action === "close-dialog") {
       const dialog = button.closest("dialog");
@@ -331,6 +334,10 @@ export class UI {
       Object.assign(this.settings, structuredClone(defaults));
       this.persist();
       this.render();
+    }
+    if(action==="reset-collateral"){
+      for(const key of Object.keys(localStorage))if(key.startsWith("collateral."))localStorage.removeItem(key);
+      Object.assign(this.settings,structuredClone(defaults));this.onSettings(this.settings);this.message("Collateral settings cleared.");this.render();
     }
     if (action === "equip-weapon") {
       const weapon = this.net.weapons.find((item) => item.path === value);
@@ -406,7 +413,7 @@ export class UI {
       ? `${value}°`
       : key === "sensitivity"
         ? `${value.toFixed(2)}×`
-        : `${Math.round(value * 100)}%`;
+        : key === "crosshairGap" ? `${Math.round(value)}px` : `${Math.round(value * 100)}%`;
   }
   private shell(content: string) {
     return `<div class="shell"><header class="command-header"><div class="wordmark"><b>C/</b></div><div class="identity"><span class="signal-dot"></span><strong>${esc(this.net.username)}</strong><button class="signout" data-action="signout">SIGN OUT ↗</button></div></header><aside><nav aria-label="Main navigation">${(["play", "news", "loadout", "settings"] as Page[]).map((page, i) => `<button data-action="nav" data-value="${page}" class="nav-button ${this.page === page ? "selected" : ""}" ${this.page === page ? 'aria-current="page"' : ""}><span>0${i + 1}</span>${page}<i>↗</i></button>`).join("")}</nav></aside><main>${content}</main><footer class="command-footer"><span>COLLATERAL</span></footer></div>`;
@@ -423,7 +430,8 @@ export class UI {
     this.hud.hidden = !playing;
     this.killFeedRoot.hidden = !playing;
     if (!this.authenticated) {
-      this.root.innerHTML = `<div class="entry"><section class="entry-panel"><p class="eyebrow">TACTICAL FPS</p><h1>COLLATERAL</h1><p class="entry-copy">Choose a callsign to continue.</p><form id="username-form"><label for="username">Callsign</label><div class="input-action"><input id="username" name="username" placeholder="Your callsign" autocomplete="nickname" minlength="3" maxlength="20" required><button class="primary" type="submit">CONNECT <span>↗</span></button></div><p class="muted">3–20 characters. No account required.</p></form></section></div>`;
+      const chromium=!!(window as any).chrome;
+      this.root.innerHTML = `<div class="entry"><section class="entry-panel"><p class="eyebrow">TACTICAL FPS</p><h1>COLLATERAL</h1><p class="entry-copy">Choose a callsign to continue.</p>${chromium?"":'<p class="browser-warning">For best performance, please use Chrome, Edge, or another Chromium-based browser.</p>'}<form id="username-form"><label for="username">Callsign</label><div class="input-action"><input id="username" name="username" placeholder="Your callsign" autocomplete="nickname" minlength="3" maxlength="20" required><button class="primary" type="submit">CONNECT <span>↗</span></button></div><p class="muted">3–20 characters. No account required.</p></form></section></div>`;
       return;
     }
     if (state?.phase === "waiting") {
@@ -474,8 +482,8 @@ export class UI {
     const root = this.root.querySelector("#lobby-list");
     if (!root) return;
     root.innerHTML = this.net.lobbies.length
-      ? `<div class="lobby-head"><span>LOBBY / HOST</span><span>PLAYERS</span><span></span></div>${this.net.lobbies.map((l) => `<div class="lobby-row"><div><strong>${l.locked ? "&#128274; " : ""}${esc(l.name)}</strong><small>Hosted by ${esc(l.host)}</small></div><span>${l.players}<span class="muted"> / 10</span></span><button data-action="join" data-value="${esc(l.roomId)}" ${l.players >= 10 ? "disabled" : ""}>JOIN</button></div>`).join("")}`
-      : `<div class="empty-state"><span class="empty-number">0 / 10</span><h3>No waiting lobbies.</h3><p>Create a lobby and invite your squad.</p></div>`;
+      ? `<div class="lobby-head"><span>LOBBY / HOST</span><span>PLAYERS</span><span></span></div>${this.net.lobbies.map((l) => `<div class="lobby-row"><div><strong>${l.locked ? "&#128274; " : ""}${esc(l.name)}</strong><small>Hosted by ${esc(l.host)} · ${l.status === "in-game" ? "MATCH IN PROGRESS" : "WAITING"}</small></div><span>${l.players}<span class="muted"> / 10</span></span><button data-action="join" data-value="${esc(l.roomId)}" ${l.players >= 10 ? "disabled" : ""}>JOIN</button></div>`).join("")}`
+      : `<div class="empty-state"><span class="empty-number">0 / 10</span><h3>No available lobbies.</h3><p>Create a lobby and invite your squad.</p></div>`;
   }
   private renderLobby(state: GameView) {
     const players = Object.values(state.players),
@@ -516,7 +524,12 @@ export class UI {
       )
       .join(
         "",
-      )}<h3>Crosshair</h3><label>Behavior<select data-setting="crosshairMode"><option value="dynamic" ${this.settings.crosshairMode === "dynamic" ? "selected" : ""}>Dynamic</option><option value="static" ${this.settings.crosshairMode === "static" ? "selected" : ""}>Static</option></select></label><label class="slider-label">Gap<output>${this.settings.crosshairGap}px</output><input data-setting="crosshairGap" type="range" min="2" max="18" step="1" value="${this.settings.crosshairGap}"></label><button class="text-button" data-action="defaults">Reset all settings</button></section><section class="panel"><h2>Key bindings</h2>${(Object.keys(defaults.keys) as Action[]).map((action) => `<div class="key-row"><label>${actionLabels[action]}</label><button data-action="bind" data-value="${action}" aria-label="Rebind ${actionLabels[action]}">${esc(keyName(this.settings.keys[action]))}</button></div>`).join("")}</section></div>`;
+      )}<h3>Crosshair</h3><label>Behavior<select data-setting="crosshairMode"><option value="dynamic" ${this.settings.crosshairMode === "dynamic" ? "selected" : ""}>Dynamic</option><option value="static" ${this.settings.crosshairMode === "static" ? "selected" : ""}>Static</option></select></label><label class="slider-label">Gap<output>${this.settings.crosshairGap}px</output><input data-setting="crosshairGap" type="range" min="2" max="18" step="1" value="${this.settings.crosshairGap}"></label><button class="text-button" data-action="defaults">Reset all settings</button><button class="danger-reset" data-action="reset-collateral">RESET COLLATERAL</button></section><section class="panel"><h2>Key bindings</h2>${(Object.keys(defaults.keys) as Action[]).map((action) => `<div class="key-row"><label>${actionLabels[action]}</label><button data-action="bind" data-value="${action}" aria-label="Rebind ${actionLabels[action]}">${esc(keyName(this.settings.keys[action]))}</button></div>`).join("")}</section></div>`;
+  }
+  private teamJoinDialog(lobby: import("../../shared/protocol.js").Lobby){
+    this.root.querySelector("dialog")?.remove();const dialog=document.createElement("dialog");
+    dialog.innerHTML=`<form id="team-join-form"><p class="eyebrow">JOIN ${lobby.status==="in-game"?"MATCH":"LOBBY"}</p><h2>${esc(lobby.name)}</h2><input type="hidden" name="roomId" value="${esc(lobby.roomId)}">${lobby.locked?'<label>Password<input name="password" type="password" maxlength="64" required></label>':'<input type="hidden" name="password" value="">'}<label>Team<select name="team"><option value="A" ${lobby.teamA>=5?"disabled":""}>Team A · ${lobby.teamA}/5</option><option value="B" ${lobby.teamB>=5?"disabled":""}>Team B · ${lobby.teamB}/5</option></select></label><div class="dialog-actions"><button type="button" data-action="close-dialog">CANCEL</button><button class="primary">JOIN</button></div></form>`;
+    this.root.append(dialog);dialog.showModal();
   }
   private passwordDialog(roomId: string, name: string) {
     this.root.querySelector("dialog")?.remove();
@@ -598,6 +611,8 @@ export class UI {
     }
     const me = s.players[this.net.match?.sessionId ?? ""];
     if (!me) return;
+    this.hud.classList.toggle("team-A",me.team==="A");
+    this.hud.classList.toggle("team-B",me.team==="B");
     const target =
       me.health > 0
         ? me
@@ -651,9 +666,9 @@ export class UI {
     const radar = `<div class="shot-radar">${this.radarPings.map((p) => `<b class="team-${p.team}" style="--radar-x:${50 + Math.sin(p.angle) * 38}%;--radar-y:${50 - Math.cos(p.angle) * 38}%"></b>`).join("")}</div>`;
     const hill =
       s.gameMode === "king-of-the-hill"
-        ? `<div class="hill-hud"><div class="hill-bars"><i style="width:${Math.min(50, (s.scoreA / s.ticketLimit) * 50)}%"></i><b>${s.scoreA} / ${s.ticketLimit}</b><em style="width:${Math.min(50, (s.scoreB / s.ticketLimit) * 50)}%"></em></div><strong>${s.zoneTeam ? `${s.zoneTeam === me.team ? "+" : "−"}${s.zoneAdvantage} TICKETS / SEC` : s.zoneA === s.zoneB && s.zoneA > 0 ? "CONTESTED" : "ENTER THE ZONE"}</strong></div>`
+        ? `<div class="hill-hud"><div class="hill-bars"><i style="width:${Math.min(50, (s.scoreA / s.ticketLimit) * 50)}%"></i><b>YOUR TEAM ${me.team === "A" ? s.scoreA : s.scoreB} / ${s.ticketLimit}</b><em style="width:${Math.min(50, (s.scoreB / s.ticketLimit) * 50)}%"></em></div><strong>${s.zoneTeam ? `${s.zoneTeam === me.team ? "+" : "−"}${s.zoneAdvantage} TICKETS / SEC` : s.zoneA === s.zoneB && s.zoneA > 0 ? "CONTESTED" : "ENTER THE ZONE"}</strong></div>`
         : "";
-    this.hud.innerHTML = `${radar}${hill}<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>${s.gameMode === "deathmatch" ? "DEATHMATCH" : s.gameMode === "king-of-the-hill" ? "KING OF THE HILL" : `ROUND ${s.round}`}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : s.gameMode === "deathmatch" ? `FIRST TO ${s.killLimit}` : s.gameMode === "king-of-the-hill" ? `FIRST TO ${s.ticketLimit}` : `ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${board}${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>${s.gameMode === "deathmatch" ? "Deathmatch" : s.gameMode === "king-of-the-hill" ? "King of the Hill" : `Round ${s.round}`}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}` : s.gameMode !== "elimination" ? "RESPAWNING…" : "ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : esc(equipped?.name ?? me.weapon.split("/").at(-1) ?? "WEAPON")}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">TAB · Scoreboard&nbsp;&nbsp; ESC · Release mouse</div>`;
+    this.hud.innerHTML = `${radar}${hill}<div class="scoreboard"><div class="score team-a">A <strong>${s.scoreA}</strong><small>${alive("A")} alive</small></div><div class="clock"><span>${s.gameMode === "deathmatch" ? "DEATHMATCH" : s.gameMode === "king-of-the-hill" ? "KING OF THE HILL" : `ROUND ${s.round}`}</span><strong>${minutes}:${seconds}</strong><small>${s.phase === "prep" ? "PREPARE" : s.phase === "post" ? "ROUND OVER" : s.gameMode === "deathmatch" ? `FIRST TO ${s.killLimit}` : s.gameMode === "king-of-the-hill" ? `FIRST TO ${s.ticketLimit}` : `ELIMINATION`}</small></div><div class="score team-b"><strong>${s.scoreB}</strong> B<small>${alive("B")} alive</small></div></div>${board}${s.reason === "Waiting for a player to reconnect…" ? `<div class="round-banner"><span>MATCH PAUSED</span><strong>PLAYER DISCONNECTED</strong><p>${esc(s.reason)}</p></div>` : s.phase === "prep" ? `<div class="round-banner"><span>GET READY</span><strong>${s.gameMode === "deathmatch" ? "Deathmatch" : s.gameMode === "king-of-the-hill" ? "King of the Hill" : `Round ${s.round}`}</strong><p>Look around while movement and weapons are frozen.</p></div>` : s.phase === "post" ? `<div class="round-banner"><span>ROUND COMPLETE</span><strong>${s.winner === "draw" ? "DRAW — NO POINTS" : `Team ${s.winner} wins`}</strong><p>${esc(s.reason)}</p></div>` : ""}${me.health > 0 ? '<div class="crosshair" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>' : `<div class="spectator">${target ? `SPECTATING ${esc(target.username)}${s.gameMode !== "elimination" ? " · CLICK TO RESPAWN WHEN READY" : ""}` : s.gameMode !== "elimination" ? "CLICK TO RESPAWN WHEN READY" : "ELIMINATED · WAITING FOR NEXT ROUND"}</div>${recap}`}${damage}<div class="vitals"><div><small>HEALTH</small><strong>${me.health}</strong></div><p>TEAM ${me.team}</p><div class="ammo"><small>${me.reloading ? "RELOADING…" : esc(equipped?.name ?? me.weapon.split("/").at(-1) ?? "WEAPON")}</small><strong>${me.ammo}<span> / ${me.reserve}</span></strong></div></div><div class="escape-hint">TAB · Scoreboard&nbsp;&nbsp; ESC · Release mouse</div>`;
     this.hud.innerHTML += protection;
     this.hud.innerHTML = this.hud.innerHTML.replace("GLOCK", esc(weaponName));
     this.hud.insertAdjacentHTML(

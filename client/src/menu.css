@@ -32,6 +32,7 @@ button{border-radius:0}button.primary{background:#e9e9e3;border-color:#e9e9e3;co
 @media(max-height:720px) and (min-width:761px){.shell{grid-template-rows:85px 1fr 105px}.shell main{max-height:calc(100dvh - 190px);padding-top:28px}.shell aside{padding-top:28px}.nav-button{padding:11px 0}.menu-rule{margin-top:20px}.command-footer>span{font-size:70px}}
 
 #title-sequence{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;background:#050607;color:#f1f1ed;pointer-events:none;visibility:hidden}.app-ready #title-sequence{visibility:visible;animation:intro-out .7s cubic-bezier(.76,0,.24,1) 4.1s forwards}
+.intro-complete #title-sequence{display:none!important}
 .title-card{position:absolute;font-family:Impact,'Arial Narrow',sans-serif;letter-spacing:.09em;text-align:center;opacity:0;text-transform:uppercase}
 .title-card-main{font-size:clamp(58px,13vw,210px)}.app-ready .title-card-main{animation:title-main 2.1s cubic-bezier(.16,1,.3,1) .18s both}
 .title-card-main::before,.title-card-main::after{content:"";position:absolute;left:50%;width:105%;height:1px;background:#ffffff69;transform:translateX(-50%) scaleX(0);animation:title-line .8s ease .65s forwards}.title-card-main::before{top:-13px}.title-card-main::after{bottom:-9px}

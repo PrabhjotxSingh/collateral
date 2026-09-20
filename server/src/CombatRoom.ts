@@ -40,6 +40,7 @@ interface Runtime {
   pendingFire?: FireRequest;
   respawnAt: number;
   protectionEnd: number;
+  respawnReady: boolean;
   inventory: Map<string, { ammo: number; reserve: number }>;
 }
 export function switchWeaponAmmo(
@@ -92,6 +93,12 @@ export class CombatRoom extends TacticalRoom {
     });
     this.onMessage("ready", (client) => {
       if (client.sessionId === this.state.hostId) this.hostReady = true;
+    });
+    this.onMessage("respawn", (client) => {
+      const p=this.state.players.get(client.sessionId),rt=this.runtime.get(client.sessionId);
+      if(!p||!rt||p.health>0||!rt.respawnReady||this.simTime<rt.respawnAt)return;
+      if(this.state.phase!=="live"||(this.state.gameMode!=="deathmatch"&&this.state.gameMode!=="king-of-the-hill"))return;
+      this.respawn(p,rt);
     });
     this.onMessage("fire", (client, request) => {
       if (
@@ -187,8 +194,13 @@ export class CombatRoom extends TacticalRoom {
     const count = { A: 0, B: 0 };
     for (const p of s.players.values()) {
       const side = s.round % 2 === 1 ? p.team : p.team === "A" ? "B" : "A";
-      const list = map.spawns[side],
-        spawn = list[count[p.team]++ % list.length] ?? list[0];
+      const list = map.spawns[side], index=count[p.team]++, base=list[index % list.length] ?? list[0];
+      // A map may provide fewer spawn markers than the lobby has players. Fan
+      // overflow players out beside the authored marker instead of stacking
+      // capsules at exactly the same coordinates (which previously caused a
+      // large collision correction that looked like a teleport to map centre).
+      const overflow=Math.floor(index/Math.max(1,list.length)), lateral=overflow?((overflow+1)>>1)*(overflow%2?1:-1)*RULES.radius*2.35:0;
+      const spawn={...base,x:base.x+Math.cos(base.yaw)*lateral,z:base.z-Math.sin(base.yaw)*lateral};
       const stats = this.stats(p);
       p.x = spawn.x;
       p.y = spawn.y ?? 0;
@@ -225,6 +237,7 @@ export class CombatRoom extends TacticalRoom {
         ]),
         respawnAt: 0,
         protectionEnd: 0,
+        respawnReady: false,
       });
     }
   }
@@ -295,11 +308,9 @@ export class CombatRoom extends TacticalRoom {
       if (p.health <= 0) {
         if (
           (s.gameMode === "deathmatch" || s.gameMode === "king-of-the-hill") &&
-          rt.respawnAt > 0 &&
-          this.simTime >= rt.respawnAt
-        )
-          this.respawn(p, rt);
-        else continue;
+          rt.respawnAt > 0 && this.simTime >= rt.respawnAt
+        ) rt.respawnReady=true;
+        continue;
       }
       const input = { ...rt.input };
       if (this.simTime - rt.received > RULES.inputTimeoutMs / 1000) {
@@ -313,6 +324,9 @@ export class CombatRoom extends TacticalRoom {
       const oldX = rt.body.x,
         oldZ = rt.body.z;
       moveBody(rt.body, input, dt, mapById(s.mapId));
+      if(![rt.body.x,rt.body.y,rt.body.z,rt.body.vx,rt.body.vy,rt.body.vz].every(Number.isFinite)){
+        rt.body={...makeBody(oldX,oldZ),y:Number.isFinite(p.y)?p.y:0};
+      }
       // Resolve against all living bodies, then map contacts again at crowded walls.
       for (let pass = 0; pass < 4; pass++) {
         let touched = false;
@@ -350,7 +364,7 @@ export class CombatRoom extends TacticalRoom {
           cause: "environment",
         } satisfies KillFeedEvent);
         if (s.gameMode === "deathmatch" || s.gameMode === "king-of-the-hill")
-          rt.respawnAt = this.simTime + 3;
+          rt.respawnAt = this.simTime + 3, rt.respawnReady=false;
         continue;
       }
       if (p.reloading && this.simTime >= rt.reloadEnd) {
@@ -550,7 +564,7 @@ export class CombatRoom extends TacticalRoom {
           if (p.team === "A") this.state.scoreA++;
           else this.state.scoreB++;
           const victimRuntime = this.runtime.get(shot.target.id);
-          if (victimRuntime) victimRuntime.respawnAt = this.simTime + 3;
+          if (victimRuntime) victimRuntime.respawnAt = this.simTime + 3, victimRuntime.respawnReady=false;
           const winner = deathmatchWinner(
             this.state.scoreA,
             this.state.scoreB,
@@ -566,7 +580,7 @@ export class CombatRoom extends TacticalRoom {
         }
         if (this.state.gameMode === "king-of-the-hill") {
           const victimRuntime = this.runtime.get(shot.target.id);
-          if (victimRuntime) victimRuntime.respawnAt = this.simTime + 3;
+          if (victimRuntime) victimRuntime.respawnAt = this.simTime + 3, victimRuntime.respawnReady=false;
         }
       }
     }
@@ -634,6 +648,7 @@ export class CombatRoom extends TacticalRoom {
     rt.queuedFire = false;
     rt.pendingFire = undefined;
     rt.respawnAt = 0;
+    rt.respawnReady = false;
     rt.inventory.set(p.weapon, { ammo: p.ammo, reserve: p.reserve });
     p.spawnProtected = true;
     rt.protectionEnd = this.simTime + 1;
@@ -659,6 +674,12 @@ export class CombatRoom extends TacticalRoom {
     p.health = 0;
     const rt = this.runtime.get(p.id);
     if (rt) rt.input = emptyInput();
+  }
+  protected onPlayerJoined(p:PlayerState){
+    if(this.state.phase==="waiting")return;
+    const stats=this.stats(p);
+    p.health=0;
+    this.runtime.set(p.id,{body:makeBody(),input:emptyInput(),received:this.simTime,lastShot:-Infinity,reloadEnd:0,lastStep:0,recoil:0,raiseEnd:0,sprintSuppressed:false,queuedFire:false,respawnAt:this.simTime,respawnReady:this.state.gameMode!=="elimination",protectionEnd:0,inventory:new Map([[p.weapon,{ammo:stats.magazine,reserve:stats.reserve}]])});
   }
   protected onReconnected(p: PlayerState) {
     if (this.state.phase === "prep") p.health = RULES.health;
@@ -707,5 +728,9 @@ export class CombatRoom extends TacticalRoom {
     this.clients
       .find((c) => c.sessionId === victim.id)
       ?.send("death-recap", { round: this.state.round, exchanges });
+    // A recap describes one life. Respawn modes do not start new rounds, so
+    // clear every exchange involving the victim after sending it.
+    for(const key of [...this.roundDamage.keys()])
+      if(key.startsWith(`${victim.id}|`)||key.endsWith(`|${victim.id}`))this.roundDamage.delete(key);
   }
 }

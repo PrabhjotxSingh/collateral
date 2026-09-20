@@ -20,6 +20,7 @@ import {
   VertexData,
   PointLight,
   CubeTexture,
+  HDRCubeTexture,
   BaseTexture,
 } from "@babylonjs/core";
 import { mapById, ASSETS } from "../../shared/maps.js";
@@ -211,7 +212,8 @@ export class Game {
       (e) => {
         if (!this.locked) return;
         e.preventDefault();
-        this.chooseSlot(e.deltaY > 0 ? 2 : 1);
+        const current=this.currentManifest?.slot??"secondary";
+        this.chooseSlot(e.deltaY>0?(current==="primary"?2:1):(current==="secondary"?1:2));
       },
       { passive: false },
     );
@@ -224,6 +226,11 @@ export class Game {
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("mousedown", (e) => {
       void this.audio.unlock();
+      const me=this.state?.players[this.network.match?.sessionId??""];
+      if(me&&me.health<=0&&(this.state?.gameMode==="deathmatch"||this.state?.gameMode==="king-of-the-hill")){
+        this.network.send("respawn");
+        return;
+      }
       if (!this.locked) {
         if (this.active) void canvas.requestPointerLock();
         return;
@@ -563,7 +570,11 @@ export class Game {
     this.scene.fogColor = colors.fog;
     if (preset === "custom" && asset) {
       const texture = (this.customEnvironment =
-        CubeTexture.CreateFromPrefilteredData(asset, this.scene));
+        asset.toLowerCase().endsWith(".hdr")
+          ? new HDRCubeTexture(asset,this.scene,256,false,true,false,true)
+          : asset.toLowerCase().endsWith(".env")
+            ? CubeTexture.CreateFromPrefilteredData(asset, this.scene)
+            : new CubeTexture(asset,this.scene));
       this.scene.environmentTexture = texture;
       this.customSky =
         this.scene.createDefaultSkybox(texture, true, 180) ?? undefined;
@@ -743,6 +754,9 @@ export class Game {
         : Object.values(this.state.players).find(
             (p) => p.team === me.team && p.health > 0 && p.connected,
           );
+    if(me.health<=0&&target?.weapon&&target.weapon!==this.currentWeapon&&target.weapon!==this.queuedWeapon){
+      this.queuedWeapon=target.weapon;this.switchElapsed=.3;this.switchLoaded=false;
+    }
     this.kick *= Math.exp(-12 * dt);
     this.damageShake *= Math.exp(-10 * dt);
     if (target) {
@@ -790,6 +804,7 @@ export class Game {
         mesh.position.set(p.x,p.y+RULES.height/2,p.z);
         this.respawnHiddenUntil.set(id,performance.now()+140);
         actor?.clips.resetToIdle();actor?.combat?.stop();
+        if(id===me.id)this.camera.position.set(p.x,p.y+(p.crouch?RULES.crouchEyeHeight:RULES.eyeHeight),p.z);
       }
       this.previousHealth.set(id,p.health);
       const shield=this.spawnShields.get(id);
@@ -886,20 +901,26 @@ export class Game {
         1 - Math.exp(-18 * dt),
       );
       mesh.rotation.y = p.yaw;
+      if(actor&&!dead){
+        // A restrained upper-body cue makes remote aim pitch readable while
+        // keeping the authored locomotion and hand pose intact.
+        const aim=Math.max(-.18,Math.min(.18,p.pitch*.22));
+        actor.root.rotation.x+=(aim-actor.root.rotation.x)*(1-Math.exp(-12*dt));
+      }
     }
     const motion = this.motion.update(
       {
         yaw: this.yaw,
         pitch: this.pitch,
-        vx: me.vx ?? 0,
-        vy: me.vy ?? 0,
-        vz: me.vz ?? 0,
-        grounded: me.grounded ?? true,
-        crouch: me.crouch,
-        ads: me.health > 0 && this.locked && this.held("ads"),
-        sprint,
-        reloading: me.reloading,
-        stepPhase: me.stepPhase ?? 0,
+        vx: target?.vx ?? 0,
+        vy: target?.vy ?? 0,
+        vz: target?.vz ?? 0,
+        grounded: target?.grounded ?? true,
+        crouch: target?.crouch ?? false,
+        ads: me.health > 0 ? this.locked && this.held("ads") : !!target?.ads,
+        sprint: me.health > 0 ? sprint : !!target?.sprint,
+        reloading: target?.reloading ?? false,
+        stepPhase: target?.stepPhase ?? 0,
         lookActive: this.locked,
         proceduralIdle: this.currentManifest
           ? usesProceduralMotion(this.currentManifest.firstPerson, !!this.weapon?.clips.has("idle"))
@@ -928,7 +949,7 @@ export class Game {
       this.switchElapsed > 0.25
         ? (1 - (this.switchElapsed - 0.25) / 0.25) * 0.38
         : 0;
-    this.gun.setEnabled(me.health > 0 && !!this.weapon && !(this.dev.available&&this.devCamera.enabled));
+    this.gun.setEnabled(!!target && !!this.weapon && !(this.dev.available&&this.devCamera.enabled));
     this.gun.position.set(
       motion.x - 0.18 * (1 - motion.ads) + pose.x,
       motion.y - (-0.17 + 0.051 * motion.ads) + pose.y - switchDrop,
